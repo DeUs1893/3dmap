@@ -91,8 +91,9 @@ function buildTrees(spots) {
   if (!spots.length) return null;
   // crown + trunk merged into one instanced geometry; the trunk is colored via
   // vertex colors so a single material draw still works
+  // mergeGeometries needs uniform indexing: Icosahedron is non-indexed, Cylinder is not
   const crownGeo = new THREE.IcosahedronGeometry(1, 1).translate(0, 1.05, 0);
-  const trunkGeo = new THREE.CylinderGeometry(0.09, 0.13, 1.0, 5).translate(0, 0.3, 0);
+  const trunkGeo = new THREE.CylinderGeometry(0.09, 0.13, 1.0, 5).toNonIndexed().translate(0, 0.3, 0);
   const paint = (geo, color) => {
     const c = new THREE.Color(color);
     const arr = new Float32Array(geo.attributes.position.count * 3);
@@ -105,6 +106,10 @@ function buildTrees(spots) {
     return geo;
   };
   const geo = mergeGeometries([paint(trunkGeo, 0x6b5136), paint(crownGeo, 0xffffff)]);
+  if (!geo) {
+    console.warn('[greenery] Baum-Geometrie-Merge fehlgeschlagen — keine Bäume');
+    return null;
+  }
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: true });
   const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
   const dummy = new THREE.Object3D();

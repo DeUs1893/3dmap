@@ -263,6 +263,24 @@ for (const p of pieces[0]) {
 }
 console.log('ok clipping ring + path');
 
+// --- trees: instanced trunk+crown merge must produce valid geometry ---
+{
+  const { buildGreenery } = await import('../src/greenery.js');
+  const greenery = buildGreenery([
+    {
+      kind: 'forest',
+      id: 99,
+      outer: [
+        [9.91, 49.787], [9.918, 49.787], [9.918, 49.792], [9.91, 49.792], [9.91, 49.787],
+      ],
+    },
+  ]);
+  assert(greenery.trees, 'tree mesh missing (geometry merge failed?)');
+  assert(greenery.trees.geometry?.attributes?.position?.count > 0, 'tree geometry empty');
+  assert(greenery.trees.count > 50, `too few trees scattered: ${greenery.trees.count}`);
+  console.log(`ok trees: ${greenery.trees.count} instances, merged geometry valid`);
+}
+
 // --- LoD2 pipeline end-to-end (synthetic CityGML → bake → loader) ---
 {
   const { execSync } = await import('node:child_process');
