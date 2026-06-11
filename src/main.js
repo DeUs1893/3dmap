@@ -54,9 +54,9 @@ async function boot() {
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.55,
-    0.5,
-    0.82
+    0.42,
+    0.4,
+    0.85
   );
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -67,7 +67,18 @@ async function boot() {
   await loadTerrainData(import.meta.env.BASE_URL ?? './');
   setProgress(0.1);
 
-  const osmJson = await fetchOSM(setStatus);
+  // Overpass sends no content-length; let the bar creep while we wait
+  let creep = 0.1;
+  const creepTimer = setInterval(() => {
+    creep = Math.min(0.48, creep + (0.48 - creep) * 0.04);
+    setProgress(creep);
+  }, 250);
+  let osmJson;
+  try {
+    osmJson = await fetchOSM(setStatus);
+  } finally {
+    clearInterval(creepTimer);
+  }
   setProgress(0.5);
   setStatus('Verarbeite Stadtdaten …');
   await new Promise((r) => requestAnimationFrame(r));

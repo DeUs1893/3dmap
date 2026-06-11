@@ -36,7 +36,7 @@ export function buildGreenery(greens) {
     const color = KIND_COLORS[g.kind] ?? KIND_COLORS.green;
     const offset = pos.length / 3;
     for (const v of verts) {
-      pos.push(v.x, groundY(v.x, v.y) + 0.22, v.y);
+      pos.push(v.x, groundY(v.x, v.y) + 0.4, v.y);
       const shade = 0.9 + hash01(Math.round(v.x * 13 + v.y * 7)) * 0.2;
       col.push(color.r * shade, color.g * shade, color.b * shade);
     }

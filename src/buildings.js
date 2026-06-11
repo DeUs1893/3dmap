@@ -131,10 +131,17 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
 
     // base/top elevation from terrain under the footprint
     let base = Infinity;
-    for (const p of outer) base = Math.min(base, groundY(p.x, p.y));
+    let crest = -Infinity;
+    for (const p of outer) {
+      const g = groundY(p.x, p.y);
+      base = Math.min(base, g);
+      crest = Math.max(crest, g);
+    }
     if (!Number.isFinite(base)) continue;
     const height = Math.max(3, b.height);
-    const top = base + height;
+    // on steep slopes keep the uphill side visible too
+    const top = Math.max(base + height, crest + Math.min(height, 10));
+    const effHeight = top - base;
     const skirt = base - 6; // walls extend below ground on slopes
 
     const seed = hash01(b.id);
@@ -165,8 +172,8 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
         if (segLen < 0.01) continue;
         const u2 = u + segLen;
         // two triangles: (a,skirt)-(c,skirt)-(c,top) and (a,skirt)-(c,top)-(a,top)
-        pushTri(a.x, skirt, a.y, c.x, skirt, c.y, c.x, top, c.y, wallC, [u, skirt - base, u2, skirt - base, u2, height], seed, 1, flood, height);
-        pushTri(a.x, skirt, a.y, c.x, top, c.y, a.x, top, a.y, wallC, [u, skirt - base, u2, height, u, height], seed, 1, flood, height);
+        pushTri(a.x, skirt, a.y, c.x, skirt, c.y, c.x, top, c.y, wallC, [u, skirt - base, u2, skirt - base, u2, effHeight], seed, 1, flood, effHeight);
+        pushTri(a.x, skirt, a.y, c.x, top, c.y, a.x, top, a.y, wallC, [u, skirt - base, u2, effHeight, u, effHeight], seed, 1, flood, effHeight);
         u = u2;
       }
     }
@@ -181,7 +188,7 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
         // ensure upward-facing winding (y-up, ring in xz with z = south)
         const cross = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
         const [q2, q3] = cross > 0 ? [p3, p2] : [p2, p3];
-        pushTri(p1.x, top, p1.y, q2.x, top, q2.y, q3.x, top, q3.y, roofC, [0, 0, 0, 0, 0, 0], seed, 0, flood * 0.7, height);
+        pushTri(p1.x, top, p1.y, q2.x, top, q2.y, q3.x, top, q3.y, roofC, [0, 0, 0, 0, 0, 0], seed, 0, flood * 0.7, effHeight);
       }
     }
   }

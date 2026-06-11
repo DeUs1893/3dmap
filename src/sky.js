@@ -17,7 +17,7 @@ const KEYS = [
     lightAz: 283, lightEl: 7, lightColor: 0xff9248, lightIntensity: 1.35,
     hemiSky: 0x4a5a8a, hemiGround: 0x3a342c, hemiIntensity: 0.5,
     zenith: 0x1c2b4d, horizon: 0xff9d5c, fog: 0x3a3a55, fogDensity: 0.00012,
-    windowGlow: 1.6, litRatio: 0.55, floodGlow: 0.55, lampOpacity: 0.85,
+    windowGlow: 1.05, litRatio: 0.45, floodGlow: 0.3, lampOpacity: 0.85,
     starAlpha: 0.25, exposure: 1.05, sunGlow: 1.0,
   },
   {
@@ -25,7 +25,7 @@ const KEYS = [
     lightAz: 115, lightEl: 40, lightColor: 0x93aadd, lightIntensity: 0.45,
     hemiSky: 0x222e52, hemiGround: 0x191713, hemiIntensity: 0.42,
     zenith: 0x05080f, horizon: 0x131c33, fog: 0x0a0e1a, fogDensity: 0.00013,
-    windowGlow: 2.2, litRatio: 0.62, floodGlow: 0.85, lampOpacity: 1.0,
+    windowGlow: 1.7, litRatio: 0.55, floodGlow: 0.55, lampOpacity: 1.0,
     starAlpha: 1.0, exposure: 1.12, sunGlow: 0.35,
   },
 ];
@@ -114,16 +114,17 @@ export class Atmosphere {
           if (dir.y < 0.0) col = u_fog;
 
           float sunDot = max(dot(dir, normalize(u_sunDir)), 0.0);
-          col += u_sunColor * pow(sunDot, 900.0) * 6.0 * u_sunGlow;   // disc
-          col += u_sunColor * pow(sunDot, 60.0) * 0.55 * u_sunGlow;   // corona
-          col += u_sunColor * pow(sunDot, 6.0) * 0.18 * u_sunGlow;    // haze
+          col += u_sunColor * pow(sunDot, 6000.0) * 8.0 * u_sunGlow;  // disc
+          col += u_sunColor * pow(sunDot, 180.0) * 0.5 * u_sunGlow;   // corona
+          col += u_sunColor * pow(sunDot, 8.0) * 0.16 * u_sunGlow;    // haze
 
-          // stars
-          vec2 sp = vec2(atan(dir.z, dir.x) * 60.0, dir.y * 220.0);
+          // stars (point-like inside their hash cell)
+          vec2 sp = vec2(atan(dir.z, dir.x) * 110.0, dir.y * 330.0);
           vec2 cell = floor(sp);
-          float star = step(0.992, hash(cell)) * smoothstep(0.0, 0.25, dir.y);
-          float tw = 0.6 + 0.4 * hash(cell + 7.0);
-          col += vec3(0.9, 0.95, 1.0) * star * tw * u_starAlpha;
+          vec2 cf = fract(sp) - vec2(hash(cell + 3.0), hash(cell + 11.0));
+          float star = step(0.985, hash(cell)) * smoothstep(0.16, 0.02, length(cf));
+          float tw = 0.5 + 0.5 * hash(cell + 7.0);
+          col += vec3(0.9, 0.95, 1.0) * star * tw * u_starAlpha * smoothstep(0.0, 0.2, dir.y);
 
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>

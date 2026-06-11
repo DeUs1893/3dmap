@@ -276,6 +276,18 @@ body {
   transform: translateX(-3px);
 }
 
+.hud-attribution {
+  bottom: 14px;
+  right: 16px;
+  font-size: 10.5px;
+  color: #6b7489;
+  text-decoration: none;
+}
+
+.hud-attribution:hover {
+  color: #aab3c8;
+}
+
 .hud-help {
   bottom: 20px;
   left: 50%;

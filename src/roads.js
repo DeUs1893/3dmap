@@ -31,7 +31,7 @@ function pathHeights(pts, road) {
       ys[i] = y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * 1.6;
     }
   } else {
-    for (let i = 0; i < pts.length; i++) ys[i] = groundY(pts[i].x, pts[i].y) + 0.35;
+    for (let i = 0; i < pts.length; i++) ys[i] = groundY(pts[i].x, pts[i].y) + 0.55;
   }
   return ys;
 }
