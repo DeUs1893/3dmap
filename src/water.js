@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, triangulatePolygon } from './polyutil.js';
+import { projectRing, triangulatePolygon, clipRingToRect } from './polyutil.js';
 
 export const waterUniforms = {
   u_time: { value: 0 },
@@ -18,10 +19,14 @@ export const waterUniforms = {
  *  - build(): THREE.Mesh of the animated water surface
  */
 export function prepareWater(waterPolys) {
+  // rivers extend far beyond the map; clip everything to the rendered extent
+  const rect = getMapRect(500);
   const polys = waterPolys
     .map((p) => ({
-      outer: projectRing(p.outer),
-      holes: p.holes.map(projectRing).filter((h) => h.length >= 3),
+      outer: clipRingToRect(projectRing(p.outer), rect),
+      holes: p.holes
+        .map((h) => clipRingToRect(projectRing(h), rect))
+        .filter((h) => h.length >= 3),
     }))
     .filter((p) => p.outer.length >= 3);
 

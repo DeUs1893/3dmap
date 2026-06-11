@@ -118,6 +118,71 @@ export function subdivideTriangles(verts, tris, maxEdge) {
   return { verts: v, tris: t };
 }
 
+// Sutherland–Hodgman clipping of a ring (THREE.Vector2[]) against a rectangle
+export function clipRingToRect(ring, rect) {
+  const edges = [
+    (p) => p.x >= rect.minX,
+    (p) => p.x <= rect.maxX,
+    (p) => p.y >= rect.minZ,
+    (p) => p.y <= rect.maxZ,
+  ];
+  const intersect = [
+    (a, b) => new THREE.Vector2(rect.minX, a.y + ((b.y - a.y) * (rect.minX - a.x)) / (b.x - a.x)),
+    (a, b) => new THREE.Vector2(rect.maxX, a.y + ((b.y - a.y) * (rect.maxX - a.x)) / (b.x - a.x)),
+    (a, b) => new THREE.Vector2(a.x + ((b.x - a.x) * (rect.minZ - a.y)) / (b.y - a.y), rect.minZ),
+    (a, b) => new THREE.Vector2(a.x + ((b.x - a.x) * (rect.maxZ - a.y)) / (b.y - a.y), rect.maxZ),
+  ];
+  let out = ring;
+  for (let e = 0; e < 4; e++) {
+    const input = out;
+    out = [];
+    for (let i = 0; i < input.length; i++) {
+      const cur = input[i];
+      const prev = input[(i + input.length - 1) % input.length];
+      const curIn = edges[e](cur);
+      const prevIn = edges[e](prev);
+      if (curIn) {
+        if (!prevIn) out.push(intersect[e](prev, cur));
+        out.push(cur);
+      } else if (prevIn) {
+        out.push(intersect[e](prev, cur));
+      }
+    }
+    if (out.length < 3) return [];
+  }
+  return out;
+}
+
+// Splits a polyline into pieces inside the rectangle (clipping segments at the border)
+export function clipPathToRect(path, rect) {
+  const inside = (p) => p.x >= rect.minX && p.x <= rect.maxX && p.y >= rect.minZ && p.y <= rect.maxZ;
+  const pieces = [];
+  let current = [];
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i];
+    if (inside(p)) {
+      if (current.length === 0 && i > 0) {
+        // entering: add border intersection (approx: previous point clamped)
+        const q = path[i - 1].clone();
+        q.x = Math.max(rect.minX, Math.min(rect.maxX, q.x));
+        q.y = Math.max(rect.minZ, Math.min(rect.maxZ, q.y));
+        current.push(q);
+      }
+      current.push(p);
+    } else if (current.length) {
+      // leaving: clamp this point to the border as an endpoint
+      const q = p.clone();
+      q.x = Math.max(rect.minX, Math.min(rect.maxX, q.x));
+      q.y = Math.max(rect.minZ, Math.min(rect.maxZ, q.y));
+      current.push(q);
+      if (current.length >= 2) pieces.push(current);
+      current = [];
+    }
+  }
+  if (current.length >= 2) pieces.push(current);
+  return pieces;
+}
+
 // Resamples a local-space polyline ([Vector2,...]) so points are at most `step` apart
 export function densifyPath(pts, step) {
   if (pts.length < 2) return pts;

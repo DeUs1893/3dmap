@@ -1,7 +1,14 @@
 import * as THREE from 'three';
-import { hash01 } from './geo.js';
+import { hash01, getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, ringArea, triangulatePolygon, subdivideTriangles, pointInRing } from './polyutil.js';
+import {
+  projectRing,
+  ringArea,
+  triangulatePolygon,
+  subdivideTriangles,
+  pointInRing,
+  clipRingToRect,
+} from './polyutil.js';
 
 const KIND_COLORS = {
   green: new THREE.Color(0x32432d),
@@ -24,8 +31,9 @@ export function buildGreenery(greens) {
   const treeSpots = [];
   let treeBudget = 6500;
 
+  const rect = getMapRect(450);
   for (const g of greens) {
-    const ring = projectRing(g.outer);
+    const ring = clipRingToRect(projectRing(g.outer), rect);
     if (ring.length < 3) continue;
     const area = Math.abs(ringArea(ring));
     if (area < 40) continue;

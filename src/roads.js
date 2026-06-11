@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, densifyPath } from './polyutil.js';
+import { projectRing, densifyPath, clipPathToRect } from './polyutil.js';
 
 const ROAD_COLORS = {
   0: new THREE.Color(0x4a4e57),
@@ -87,23 +88,28 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
 export function buildRoads(roads, rails) {
   const arrays = { pos: [], col: [], idx: [] };
   const trafficPaths = [];
+  const rect = getMapRect(450);
 
   for (const road of roads) {
     if (road.tunnel) continue;
-    const pts = densifyPath(projectRing(road.path), 9);
-    if (pts.length < 2) continue;
-    const ys = pathHeights(pts, road);
-    const color = ROAD_COLORS[road.rank] ?? ROAD_COLORS[5];
-    appendRibbon(arrays, pts, ys, road.width, color, road.bridge);
+    for (const piece of clipPathToRect(projectRing(road.path), rect)) {
+      const pts = densifyPath(piece, 9);
+      if (pts.length < 2) continue;
+      const ys = pathHeights(pts, road);
+      const color = ROAD_COLORS[road.rank] ?? ROAD_COLORS[5];
+      appendRibbon(arrays, pts, ys, road.width, color, road.bridge);
 
-    if (road.rank <= 2) trafficPaths.push({ pts, ys });
+      if (road.rank <= 2) trafficPaths.push({ pts, ys });
+    }
   }
 
   for (const rail of rails) {
-    const pts = densifyPath(projectRing(rail.path), 12);
-    if (pts.length < 2) continue;
-    const ys = pts.map((p) => groundY(p.x, p.y) + 0.3);
-    appendRibbon(arrays, pts, ys, rail.tram ? 2.5 : 3.2, RAIL_COLOR, false);
+    for (const piece of clipPathToRect(projectRing(rail.path), rect)) {
+      const pts = densifyPath(piece, 12);
+      if (pts.length < 2) continue;
+      const ys = pts.map((p) => groundY(p.x, p.y) + 0.5);
+      appendRibbon(arrays, pts, ys, rail.tram ? 2.5 : 3.2, RAIL_COLOR, false);
+    }
   }
 
   const geo = new THREE.BufferGeometry();

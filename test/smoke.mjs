@@ -102,4 +102,33 @@ for (let i = 0; i < rPos.count; i++) {
 assert.equal(trafficPaths.length, 1);
 console.log(`ok geometry road ribbon: ${rPos.count} verts, ${trafficPaths.length} traffic path`);
 
+// --- polygon / polyline clipping ---
+const THREE = await import('three');
+const { clipRingToRect, clipPathToRect } = await import('../src/polyutil.js');
+const rect = { minX: 0, maxX: 100, minZ: 0, maxZ: 100 };
+const bigRing = [
+  new THREE.Vector2(-50, -50),
+  new THREE.Vector2(150, -50),
+  new THREE.Vector2(150, 150),
+  new THREE.Vector2(-50, 150),
+];
+const clipped = clipRingToRect(bigRing, rect);
+assert(clipped.length >= 4, 'clipped ring lost shape');
+for (const p of clipped) {
+  assert(p.x >= -0.01 && p.x <= 100.01 && p.y >= -0.01 && p.y <= 100.01, 'clip out of rect');
+}
+const outsideRing = [
+  new THREE.Vector2(200, 200),
+  new THREE.Vector2(300, 200),
+  new THREE.Vector2(300, 300),
+];
+assert.equal(clipRingToRect(outsideRing, rect).length, 0, 'fully-outside ring not removed');
+const path = [new THREE.Vector2(-50, 50), new THREE.Vector2(50, 50), new THREE.Vector2(200, 50)];
+const pieces = clipPathToRect(path, rect);
+assert.equal(pieces.length, 1, 'path should yield one inside piece');
+for (const p of pieces[0]) {
+  assert(p.x >= 0 && p.x <= 100, 'path clip out of rect');
+}
+console.log('ok clipping ring + path');
+
 console.log('\nAll smoke tests passed.');

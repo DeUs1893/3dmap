@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, densifyPath } from './polyutil.js';
+import { projectRing, densifyPath, clipPathToRect } from './polyutil.js';
 
 // Soft round sprite used by lamps and car lights
 export function makeGlowTexture() {
@@ -26,18 +27,21 @@ export function buildLamps(roads, texture) {
   const warm = new THREE.Color(0xffc98a);
   const cool = new THREE.Color(0xcfe0ff);
 
-  for (const road of roads) {
+  const rect = getMapRect(450);
+  outer: for (const road of roads) {
     if (road.tunnel || road.rank > 4) continue;
     const spacing = road.rank <= 1 ? 32 : road.rank <= 3 ? 40 : 26;
-    const pts = densifyPath(projectRing(road.path), spacing);
-    // skip endpoints to reduce double lamps at junctions
-    for (let i = 1; i < pts.length - 1; i++) {
-      if (positions.length / 3 > 9000) break;
-      const p = pts[i];
-      const y = groundY(p.x, p.y) + (road.rank <= 1 ? 7 : 4.6);
-      positions.push(p.x, y, p.y);
-      const c = road.rank <= 1 && Math.random() < 0.5 ? cool : warm;
-      colors.push(c.r, c.g, c.b);
+    for (const piece of clipPathToRect(projectRing(road.path), rect)) {
+      const pts = densifyPath(piece, spacing);
+      // skip endpoints to reduce double lamps at junctions
+      for (let i = 1; i < pts.length - 1; i++) {
+        if (positions.length / 3 > 9000) break outer;
+        const p = pts[i];
+        const y = groundY(p.x, p.y) + (road.rank <= 1 ? 7 : 4.6);
+        positions.push(p.x, y, p.y);
+        const c = road.rank <= 1 && Math.random() < 0.5 ? cool : warm;
+        colors.push(c.r, c.g, c.b);
+      }
     }
   }
 

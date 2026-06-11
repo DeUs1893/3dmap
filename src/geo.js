@@ -1,4 +1,4 @@
-import { ORIGIN, BASE_ELEVATION } from './config.js';
+import { ORIGIN, BASE_ELEVATION, MAP_BBOX } from './config.js';
 
 const M_PER_DEG_LAT = 111194;
 const M_PER_DEG_LON = 111319.49 * Math.cos((ORIGIN.lat * Math.PI) / 180);
@@ -20,6 +20,18 @@ export function unproject(x, z) {
 
 export function elevationToY(ele) {
   return ele - BASE_ELEVATION;
+}
+
+// Local-space rectangle of the map extent, expanded by `margin` meters
+export function getMapRect(margin = 0) {
+  const a = project(MAP_BBOX.west, MAP_BBOX.south);
+  const b = project(MAP_BBOX.east, MAP_BBOX.north);
+  return {
+    minX: Math.min(a.x, b.x) - margin,
+    maxX: Math.max(a.x, b.x) + margin,
+    minZ: Math.min(a.z, b.z) - margin,
+    maxZ: Math.max(a.z, b.z) + margin,
+  };
 }
 
 // Deterministic pseudo-random in [0,1) from an integer seed
