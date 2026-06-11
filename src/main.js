@@ -5,8 +5,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-import { LANDMARKS } from './config.js';
+import { LANDMARKS, MAP_BBOX, ORIGIN } from './config.js';
 import { project } from './geo.js';
+import { findDuskMinutes } from './sun.js';
 import { loadTerrainData, buildTerrainMesh, groundY } from './terrain.js';
 import { fetchOSM, parseOSM } from './osm.js';
 import { buildBuildings } from './buildings.js';
@@ -94,7 +95,7 @@ async function boot() {
   await new Promise((r) => requestAnimationFrame(r));
 
   setStatus('Asphaltiere Straßen …');
-  const { mesh: roadMesh, trafficPaths } = buildRoads(data.roads, data.rails);
+  const { mesh: roadMesh, trafficPaths, tramPaths } = buildRoads(data.roads, data.rails);
   scene.add(roadMesh);
   setProgress(0.66);
   await new Promise((r) => requestAnimationFrame(r));
@@ -106,8 +107,10 @@ async function boot() {
   setProgress(0.72);
   await new Promise((r) => requestAnimationFrame(r));
 
-  setStatus(`Errichte ${data.buildings.length.toLocaleString('de-DE')} Gebäude …`);
-  const buildingMesh = await buildBuildings(data.buildings, (f) => setProgress(0.72 + f * 0.22));
+  // Simple-3D: hulls detailed by building:part are replaced by their parts
+  const renderBuildings = data.buildings.filter((b) => !b.hasParts).concat(data.parts);
+  setStatus(`Errichte ${renderBuildings.length.toLocaleString('de-DE')} Gebäude …`);
+  const buildingMesh = await buildBuildings(renderBuildings, (f) => setProgress(0.72 + f * 0.22));
   scene.add(buildingMesh);
 
   // ---------- lights & atmosphere ----------
@@ -116,11 +119,24 @@ async function boot() {
   scene.add(lamps);
   const traffic = new TrafficSystem(trafficPaths, glowTex);
   scene.add(traffic.points);
+  const trams = new TrafficSystem(tramPaths, glowTex, {
+    metersPerVehicle: 600,
+    maxCount: 24,
+    minCount: 2,
+    speedMin: 5,
+    speedMax: 9,
+    size: 8,
+    colorForward: 0xfff0b8,
+    colorBackward: 0xfff0b8,
+    heightOffset: 2.2,
+    name: 'trams',
+  });
+  scene.add(trams.points);
 
   const atmosphere = new Atmosphere(scene, renderer);
   atmosphere.registerLampMaterial(lamps.material, 0.9);
   atmosphere.registerLampMaterial(traffic.points.material, 1);
-  atmosphere.setTime(0.5);
+  atmosphere.registerLampMaterial(trams.points.material, 1);
 
   // ---------- camera rig ----------
   const rig = new CameraRig(camera, renderer.domElement, bounds);
@@ -168,9 +184,73 @@ async function boot() {
   }
 
   // ---------- UI ----------
-  $('time-slider').addEventListener('input', (e) => atmosphere.setTime(e.target.value / 100));
+  const slider = $('time-slider');
+  const timeLabel = $('time-label');
+  const applyClock = (minutes) => {
+    atmosphere.setClock(minutes);
+    const h = String(Math.floor(minutes / 60)).padStart(2, '0');
+    const m = String(Math.round(minutes % 60)).padStart(2, '0');
+    timeLabel.textContent = `${h}:${m}`;
+  };
+  slider.addEventListener('input', (e) => applyClock(Number(e.target.value)));
+  const duskMinutes = findDuskMinutes(ORIGIN.lat, ORIGIN.lon);
+  slider.value = String(duskMinutes);
+  applyClock(duskMinutes);
+
+  const reflToggle = $('refl-toggle');
+  reflToggle.addEventListener('click', () => {
+    const on = waterUniforms.u_reflStrength.value < 0.5;
+    waterUniforms.u_reflStrength.value = on ? 1 : 0;
+    reflToggle.classList.toggle('on', on);
+  });
+
+  // address search via Nominatim, bounded to the map extent
+  const searchInput = $('search');
+  const searchHint = $('search-hint');
+  const showHint = (text, sticky = false) => {
+    searchHint.textContent = text;
+    searchHint.classList.remove('hidden');
+    if (!sticky) setTimeout(() => searchHint.classList.add('hidden'), 4000);
+  };
+  searchInput.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const q = searchInput.value.trim();
+    if (!q) return;
+    showHint('Suche …', true);
+    try {
+      const vb = `${MAP_BBOX.west},${MAP_BBOX.north},${MAP_BBOX.east},${MAP_BBOX.south}`;
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&bounded=1&viewbox=${vb}&q=${encodeURIComponent(q)}`
+      );
+      const list = await res.json();
+      if (!list.length) {
+        showHint('Nichts gefunden im Kartenausschnitt.');
+        return;
+      }
+      const hit = list[0];
+      const p = project(parseFloat(hit.lon), parseFloat(hit.lat));
+      const pos = new THREE.Vector3(p.x, groundY(p.x, p.z) + 8, p.z);
+      const from = camera.position.clone().sub(pos);
+      from.y = 0;
+      if (from.lengthSq() < 1) from.set(1, 0, 1);
+      from.normalize();
+      const dist = 260;
+      const elv = THREE.MathUtils.degToRad(30);
+      const camPos = pos
+        .clone()
+        .addScaledVector(from, dist * Math.cos(elv))
+        .add(new THREE.Vector3(0, dist * Math.sin(elv), 0));
+      camPos.y = Math.max(camPos.y, groundY(camPos.x, camPos.z) + 20);
+      rig.flyTo(camPos, pos, 2.2);
+      showHint(hit.display_name.split(',').slice(0, 2).join(','));
+      searchInput.blur();
+    } catch {
+      showHint('Suche fehlgeschlagen — Nominatim nicht erreichbar.');
+    }
+  });
+
   $('hud-stats').textContent =
-    `${data.buildings.length.toLocaleString('de-DE')} Gebäude · ` +
+    `${renderBuildings.length.toLocaleString('de-DE')} Gebäude · ` +
     `${data.roads.length.toLocaleString('de-DE')} Wege · OpenStreetMap`;
 
   window.addEventListener('resize', () => {
@@ -214,6 +294,7 @@ async function boot() {
     const dt = Math.min(clock.getDelta(), 0.1);
     rig.update(dt);
     traffic.update(dt);
+    trams.update(dt);
     waterUniforms.u_time.value += dt;
 
     // distance-based label fading

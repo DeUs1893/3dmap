@@ -50,6 +50,7 @@ export class CameraRig {
       this.pitch = THREE.MathUtils.clamp(this.pitch, -1.45, 1.45);
     });
     window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'KeyF' && !e.repeat) this.toggleMode();
       this.keys.add(e.code);
     });

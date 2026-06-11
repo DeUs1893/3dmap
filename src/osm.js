@@ -11,6 +11,8 @@ function buildQuery() {
 (
   way["building"](${b});
   relation["building"](${b});
+  way["building:part"](${b});
+  relation["building:part"](${b});
   way["highway"](${b});
   way["railway"~"^(rail|tram)$"](${b});
   way["natural"="water"](${b});
@@ -181,42 +183,57 @@ const ROAD_CLASSES = {
   steps: { width: 2, rank: 6 },
 };
 
+function parseMinHeight(tags) {
+  const m = parseHeightMeters(tags.min_height);
+  if (m !== null) return m;
+  const lv = parseFloat(tags['building:min_level']);
+  if (!Number.isNaN(lv) && lv > 0) return lv * 3.3;
+  return 0;
+}
+
+function roofInfo(tags) {
+  const shape = tags['roof:shape'] ?? null;
+  const height = parseHeightMeters(tags['roof:height']);
+  return { shape, height };
+}
+
 export function parseOSM(json) {
   const buildings = [];
+  const parts = [];
   const roads = [];
   const rails = [];
   const waterPolys = [];
   const greens = [];
 
+  const pushBuilding = (list, el, outer, holes, typeTag) => {
+    const tags = el.tags;
+    list.push({
+      id: el.id,
+      outer,
+      holes,
+      height: buildingHeight(tags, el.id),
+      minHeight: parseMinHeight(tags),
+      roof: roofInfo(tags),
+      type: typeTag,
+      name: tags.name ?? null,
+    });
+  };
+
   for (const el of json.elements) {
     const tags = el.tags ?? {};
 
-    if (el.type === 'way' && tags.building) {
-      const ring = wayRing(el);
-      if (ring.length >= 4) {
-        buildings.push({
-          id: el.id,
-          outer: ring,
-          holes: [],
-          height: buildingHeight(tags, el.id),
-          type: tags.building,
-          name: tags.name ?? null,
-        });
-      }
-      continue;
-    }
-
-    if (el.type === 'relation' && tags.building) {
-      const { outers, inners } = relationPolygons(el);
-      for (const outer of outers) {
-        buildings.push({
-          id: el.id,
-          outer,
-          holes: inners,
-          height: buildingHeight(tags, el.id),
-          type: tags.building,
-          name: tags.name ?? null,
-        });
+    const isPart = tags['building:part'] && tags['building:part'] !== 'no';
+    if (isPart || tags.building) {
+      const list = isPart ? parts : buildings;
+      const typeTag = isPart
+        ? (tags['building:part'] === 'yes' ? tags.building ?? 'yes' : tags['building:part'])
+        : tags.building;
+      if (el.type === 'way') {
+        const ring = wayRing(el);
+        if (ring.length >= 4) pushBuilding(list, el, ring, [], typeTag);
+      } else if (el.type === 'relation') {
+        const { outers, inners } = relationPolygons(el);
+        for (const outer of outers) pushBuilding(list, el, outer, inners, typeTag);
       }
       continue;
     }
@@ -268,5 +285,43 @@ export function parseOSM(json) {
     }
   }
 
-  return { buildings, roads, rails, waterPolys, greens };
+  // Simple-3D buildings: a hull that is detailed by parts is not rendered itself
+  if (parts.length) {
+    const inRing = (lon, lat, ring) => {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    };
+    const centroids = parts.map((p) => {
+      let lon = 0;
+      let lat = 0;
+      for (const [x, y] of p.outer) {
+        lon += x;
+        lat += y;
+      }
+      return [lon / p.outer.length, lat / p.outer.length];
+    });
+    for (const b of buildings) {
+      let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+      for (const [x, y] of b.outer) {
+        minLon = Math.min(minLon, x); maxLon = Math.max(maxLon, x);
+        minLat = Math.min(minLat, y); maxLat = Math.max(maxLat, y);
+      }
+      for (const [clon, clat] of centroids) {
+        if (clon < minLon || clon > maxLon || clat < minLat || clat > maxLat) continue;
+        if (inRing(clon, clat, b.outer)) {
+          b.hasParts = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return { buildings, parts, roads, rails, waterPolys, greens };
 }

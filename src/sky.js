@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { ORIGIN } from './config.js';
 import { buildingUniforms } from './buildings.js';
 import { waterUniforms } from './water.js';
+import { sunPosition, dateAtMinutes } from './sun.js';
 
 // Keyframes: 0 = Nachmittag, 0.5 = Dämmerung, 1 = Nacht
 const KEYS = [
@@ -145,22 +147,54 @@ export class Atmosphere {
     this.lampMaterials.push({ mat, baseOpacity });
   }
 
-  setTime(t) {
+  /** Sets the scene to the real solar position for "today at N minutes". */
+  setClock(minutes) {
+    this.minutes = minutes;
+    const { azimuth, elevation } = sunPosition(dateAtMinutes(minutes), ORIGIN.lat, ORIGIN.lon);
+
+    // map solar elevation to the day/dusk/night keyframe blend
+    let t;
+    if (elevation >= 30) t = 0;
+    else if (elevation >= 0) t = ((30 - elevation) / 30) * 0.45;
+    else if (elevation >= -6) t = 0.45 + (-elevation / 6) * 0.25;
+    else if (elevation >= -14) t = 0.7 + ((-elevation - 6) / 8) * 0.3;
+    else t = 1;
+
+    this.setTime(t, { azimuth, elevation });
+  }
+
+  setTime(t, realSun = null) {
     this.time = t;
     const v = lerpKeys(t);
 
-    const az = (v.lightAz * Math.PI) / 180;
-    const el = (v.lightEl * Math.PI) / 180;
+    // while the sun is (nearly) up, use its true position for light + sky
+    const sunUp = realSun && realSun.elevation > -4;
+    const lightAzDeg = sunUp ? realSun.azimuth : v.lightAz;
+    const lightElDeg = sunUp ? Math.max(realSun.elevation, 1.5) : v.lightEl;
+
+    const az = (lightAzDeg * Math.PI) / 180;
+    const el = (lightElDeg * Math.PI) / 180;
     const dir = new THREE.Vector3(
       Math.sin(az) * Math.cos(el),
       Math.sin(el),
       -Math.cos(az) * Math.cos(el)
     );
+    // the visible sun disc may sink below the horizon even while light lingers
+    let skyDir = dir;
+    if (sunUp) {
+      const sAz = (realSun.azimuth * Math.PI) / 180;
+      const sEl = (realSun.elevation * Math.PI) / 180;
+      skyDir = new THREE.Vector3(
+        Math.sin(sAz) * Math.cos(sEl),
+        Math.sin(sEl),
+        -Math.cos(sAz) * Math.cos(sEl)
+      );
+    }
     this.sun.position.copy(dir).multiplyScalar(5000);
     this.sun.target.position.set(0, 0, 0);
     this.sun.color.copy(v.lightColor);
     this.sun.intensity = v.lightIntensity;
-    this.sun.castShadow = v.lightEl > 3 || t >= 0.75; // moon shadows are fine too
+    this.sun.castShadow = true;
 
     this.hemi.color.copy(v.hemiSky);
     this.hemi.groundColor.copy(v.hemiGround);
@@ -172,7 +206,7 @@ export class Atmosphere {
     this.skyUniforms.u_zenith.value.copy(v.zenith);
     this.skyUniforms.u_horizon.value.copy(v.horizon);
     this.skyUniforms.u_fog.value.copy(v.fog);
-    this.skyUniforms.u_sunDir.value.copy(dir);
+    this.skyUniforms.u_sunDir.value.copy(skyDir);
     this.skyUniforms.u_sunColor.value.copy(v.lightColor);
     this.skyUniforms.u_sunGlow.value = v.sunGlow;
     this.skyUniforms.u_starAlpha.value = v.starAlpha;
@@ -181,7 +215,7 @@ export class Atmosphere {
     buildingUniforms.u_litRatio.value = v.litRatio;
     buildingUniforms.u_floodGlow.value = v.floodGlow;
 
-    waterUniforms.u_sunDir.value.copy(dir);
+    waterUniforms.u_sunDir.value.copy(skyDir);
     waterUniforms.u_sunColor.value.copy(v.lightColor).multiplyScalar(Math.max(v.sunGlow, 0.3));
     waterUniforms.u_skyZenith.value.copy(v.zenith);
     waterUniforms.u_skyHorizon.value.copy(v.horizon);

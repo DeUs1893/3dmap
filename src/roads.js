@@ -88,6 +88,7 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
 export function buildRoads(roads, rails) {
   const arrays = { pos: [], col: [], idx: [] };
   const trafficPaths = [];
+  const tramPaths = [];
   const rect = getMapRect(450);
 
   for (const road of roads) {
@@ -109,6 +110,7 @@ export function buildRoads(roads, rails) {
       if (pts.length < 2) continue;
       const ys = pts.map((p) => groundY(p.x, p.y) + 0.5);
       appendRibbon(arrays, pts, ys, rail.tram ? 2.5 : 3.2, RAIL_COLOR, false);
+      if (rail.tram) tramPaths.push({ pts, ys });
     }
   }
 
@@ -127,5 +129,5 @@ export function buildRoads(roads, rails) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'roads';
-  return { mesh, trafficPaths };
+  return { mesh, trafficPaths, tramPaths };
 }

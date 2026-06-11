@@ -10,13 +10,16 @@ export const waterUniforms = {
   u_skyZenith: { value: new THREE.Color(0x1c2b4d) },
   u_skyHorizon: { value: new THREE.Color(0xff9d5c) },
   u_deepColor: { value: new THREE.Color(0x0a141c) },
+  u_reflMap: { value: null },
+  u_textureMatrix: { value: new THREE.Matrix4() },
+  u_reflStrength: { value: 1 },
 };
 
 /**
  * Prepares water geometry data. Returns:
  *  - level: water surface y
  *  - mask(x, z): water level if the point is inside a water polygon, else null
- *  - build(): THREE.Mesh of the animated water surface
+ *  - build(): THREE.Mesh of the animated, planar-reflecting water surface
  */
 export function prepareWater(waterPolys) {
   // rivers extend far beyond the map; clip everything to the rendered extent
@@ -108,10 +111,13 @@ export function prepareWater(waterPolys) {
       uniforms: waterUniforms,
       side: THREE.DoubleSide,
       vertexShader: /* glsl */ `
+        uniform mat4 u_textureMatrix;
         varying vec3 vWorldPos;
+        varying vec4 vReflCoord;
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
           vWorldPos = wp.xyz;
+          vReflCoord = u_textureMatrix * wp;
           gl_Position = projectionMatrix * viewMatrix * wp;
         }
       `,
@@ -122,7 +128,10 @@ export function prepareWater(waterPolys) {
         uniform vec3 u_skyZenith;
         uniform vec3 u_skyHorizon;
         uniform vec3 u_deepColor;
+        uniform sampler2D u_reflMap;
+        uniform float u_reflStrength;
         varying vec3 vWorldPos;
+        varying vec4 vReflCoord;
 
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -162,7 +171,15 @@ export function prepareWater(waterPolys) {
           float horizonness = 1.0 - max(reflDir.y, 0.0);
           vec3 skyRefl = mix(u_skyZenith, u_skyHorizon, pow(horizonness, 2.2));
 
-          vec3 color = mix(u_deepColor, skyRefl, fresnel);
+          // planar reflection of the actual scene, distorted by the waves
+          vec3 reflection = skyRefl;
+          if (u_reflStrength > 0.01) {
+            vec2 reflUv = vReflCoord.xy / vReflCoord.w + normal.xz * 0.06;
+            vec3 tex = texture2D(u_reflMap, clamp(reflUv, 0.001, 0.999)).rgb;
+            reflection = mix(skyRefl, tex, u_reflStrength * 0.85);
+          }
+
+          vec3 color = mix(u_deepColor, reflection, fresnel);
 
           // sun / moon glint
           float spec = pow(max(dot(reflDir, normalize(u_sunDir)), 0.0), 220.0);
@@ -181,8 +198,102 @@ export function prepareWater(waterPolys) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = 'water';
     mesh.renderOrder = 2;
+    attachReflector(mesh, level);
     return mesh;
   };
 
   return { level, mask, build };
+}
+
+// ---------------------------------------------------------------------------
+// Planar reflection pass (adapted from three.js Reflector)
+// ---------------------------------------------------------------------------
+function attachReflector(mesh, level) {
+  const renderTarget = new THREE.WebGLRenderTarget(1024, 1024);
+  waterUniforms.u_reflMap.value = renderTarget.texture;
+
+  const clipBias = 0.003;
+  const planePoint = new THREE.Vector3(0, level, 0);
+  const normal = new THREE.Vector3(0, 1, 0);
+  const reflectorPlane = new THREE.Plane();
+  const cameraWorldPosition = new THREE.Vector3();
+  const rotationMatrix = new THREE.Matrix4();
+  const lookAtPosition = new THREE.Vector3();
+  const clipPlane = new THREE.Vector4();
+  const view = new THREE.Vector3();
+  const target = new THREE.Vector3();
+  const q = new THREE.Vector4();
+  const virtualCamera = new THREE.PerspectiveCamera();
+  let rendering = false;
+
+  mesh.onBeforeRender = (renderer, scene, camera) => {
+    if (rendering || !camera.isPerspectiveCamera) return;
+    if (waterUniforms.u_reflStrength.value < 0.01) return;
+
+    cameraWorldPosition.setFromMatrixPosition(camera.matrixWorld);
+    if (cameraWorldPosition.y < level) return; // camera under water
+
+    rendering = true;
+
+    view.subVectors(planePoint, cameraWorldPosition);
+    view.reflect(normal).negate();
+    view.add(planePoint);
+
+    rotationMatrix.extractRotation(camera.matrixWorld);
+    lookAtPosition.set(0, 0, -1).applyMatrix4(rotationMatrix).add(cameraWorldPosition);
+    target.subVectors(planePoint, lookAtPosition);
+    target.reflect(normal).negate();
+    target.add(planePoint);
+
+    virtualCamera.position.copy(view);
+    virtualCamera.up.set(0, 1, 0).applyMatrix4(rotationMatrix).reflect(normal);
+    virtualCamera.lookAt(target);
+    virtualCamera.near = camera.near;
+    virtualCamera.far = camera.far;
+    virtualCamera.updateMatrixWorld();
+    virtualCamera.projectionMatrix.copy(camera.projectionMatrix);
+
+    // texture matrix: world → reflection texture coordinates
+    waterUniforms.u_textureMatrix.value
+      .set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1)
+      .multiply(virtualCamera.projectionMatrix)
+      .multiply(virtualCamera.matrixWorldInverse);
+
+    // oblique near-plane clipping at the water surface
+    reflectorPlane.setFromNormalAndCoplanarPoint(normal, planePoint);
+    reflectorPlane.applyMatrix4(virtualCamera.matrixWorldInverse);
+    clipPlane.set(
+      reflectorPlane.normal.x,
+      reflectorPlane.normal.y,
+      reflectorPlane.normal.z,
+      reflectorPlane.constant
+    );
+    const proj = virtualCamera.projectionMatrix;
+    q.x = (Math.sign(clipPlane.x) + proj.elements[8]) / proj.elements[0];
+    q.y = (Math.sign(clipPlane.y) + proj.elements[9]) / proj.elements[5];
+    q.z = -1.0;
+    q.w = (1.0 + proj.elements[10]) / proj.elements[14];
+    clipPlane.multiplyScalar(2.0 / clipPlane.dot(q));
+    proj.elements[2] = clipPlane.x;
+    proj.elements[6] = clipPlane.y;
+    proj.elements[10] = clipPlane.z + 1.0 - clipBias;
+    proj.elements[14] = clipPlane.w;
+
+    mesh.visible = false;
+    const currentRenderTarget = renderer.getRenderTarget();
+    const currentXrEnabled = renderer.xr.enabled;
+    const currentShadowAutoUpdate = renderer.shadowMap.autoUpdate;
+    renderer.xr.enabled = false;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.setRenderTarget(renderTarget);
+    renderer.state.buffers.depth.setMask(true);
+    if (renderer.autoClear === false) renderer.clear();
+    renderer.render(scene, virtualCamera);
+    renderer.xr.enabled = currentXrEnabled;
+    renderer.shadowMap.autoUpdate = currentShadowAutoUpdate;
+    renderer.setRenderTarget(currentRenderTarget);
+    mesh.visible = true;
+
+    rendering = false;
+  };
 }

@@ -102,6 +102,55 @@ for (let i = 0; i < rPos.count; i++) {
 assert.equal(trafficPaths.length, 1);
 console.log(`ok geometry road ribbon: ${rPos.count} verts, ${trafficPaths.length} traffic path`);
 
+// --- roof shapes, building:part, min_height ---
+const roofSynthetic = {
+  elements: [
+    {
+      type: 'way', id: 10, tags: { building: 'cathedral', name: 'Hull' },
+      geometry: [
+        { lon: 9.93, lat: 49.794 }, { lon: 9.9312, lat: 49.794 },
+        { lon: 9.9312, lat: 49.7946 }, { lon: 9.93, lat: 49.7946 }, { lon: 9.93, lat: 49.794 },
+      ],
+    },
+    {
+      type: 'way', id: 11,
+      tags: { 'building:part': 'yes', height: '20', 'roof:shape': 'gabled', 'roof:height': '6' },
+      geometry: [
+        { lon: 9.9301, lat: 49.7941 }, { lon: 9.9311, lat: 49.7941 },
+        { lon: 9.9311, lat: 49.7945 }, { lon: 9.9301, lat: 49.7945 }, { lon: 9.9301, lat: 49.7941 },
+      ],
+    },
+    {
+      type: 'way', id: 12,
+      tags: { 'building:part': 'yes', height: '18', min_height: '12' },
+      geometry: [
+        { lon: 9.932, lat: 49.7941 }, { lon: 9.9322, lat: 49.7941 },
+        { lon: 9.9322, lat: 49.7943 }, { lon: 9.932, lat: 49.7943 }, { lon: 9.932, lat: 49.7941 },
+      ],
+    },
+  ],
+};
+const roofParsed = parseOSM(roofSynthetic);
+assert.equal(roofParsed.parts.length, 2, 'parts not parsed');
+assert(roofParsed.buildings[0].hasParts, 'hull not flagged as detailed by parts');
+assert.equal(roofParsed.parts[0].roof.shape, 'gabled');
+assert.equal(roofParsed.parts[1].minHeight, 12);
+const partMesh = await buildBuildings(roofParsed.parts);
+const pPos = partMesh.geometry.attributes.position;
+for (let i = 0; i < pPos.count; i++) {
+  assert(Number.isFinite(pPos.getX(i)) && Number.isFinite(pPos.getY(i)), 'NaN in roof/part geometry');
+}
+console.log(`ok geometry roofs + parts: ${pPos.count} verts`);
+
+// --- solar position ---
+const { sunPosition } = await import('../src/sun.js');
+const noon = sunPosition(new Date(Date.UTC(2026, 5, 11, 11, 15)), 49.79, 9.93);
+assert(noon.elevation > 60 && noon.elevation < 66, `june noon elevation odd: ${noon.elevation}`);
+assert(Math.abs(noon.azimuth - 180) < 10, `june noon azimuth odd: ${noon.azimuth}`);
+const night = sunPosition(new Date(Date.UTC(2026, 5, 11, 23, 0)), 49.79, 9.93);
+assert(night.elevation < -10, 'sun should be down at night');
+console.log(`ok sun position: noon el ${noon.elevation.toFixed(1)}°, az ${noon.azimuth.toFixed(1)}°`);
+
 // --- polygon / polyline clipping ---
 const THREE = await import('three');
 const { clipRingToRect, clipPathToRect } = await import('../src/polyutil.js');

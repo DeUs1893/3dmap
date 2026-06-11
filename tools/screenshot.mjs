@@ -86,8 +86,44 @@ function syntheticOSM() {
     geometry: rect(9.9215, 49.7903, 130, 60, 0.3),
   });
   elements.push({
-    type: 'way', id: id++, tags: { building: 'castle', height: '40' },
+    type: 'way', id: id++, tags: { building: 'castle', height: '40', 'roof:shape': 'pyramidal', 'roof:height': '12' },
     geometry: rect(9.9212, 49.7905, 18, 18, 0.3),
+  });
+
+  // "Dom" exercising building:part: hull hidden, nave gabled, two pyramidal towers
+  const domLon = 9.9402;
+  const domLat = 49.7942;
+  elements.push({
+    type: 'way', id: id++, tags: { building: 'cathedral', name: 'Dom' },
+    geometry: rect(domLon, domLat, 64, 26, 0),
+  });
+  elements.push({
+    type: 'way', id: id++,
+    tags: { 'building:part': 'yes', height: '24', 'roof:shape': 'gabled', 'roof:height': '9' },
+    geometry: rect(domLon - 6 * M_LON, domLat, 48, 24, 0),
+  });
+  for (const dy of [-8, 8]) {
+    elements.push({
+      type: 'way', id: id++,
+      tags: { 'building:part': 'yes', height: '56', 'roof:shape': 'pyramidal', 'roof:height': '16' },
+      geometry: rect(domLon + 24 * M_LON, domLat + dy * M_LAT, 9, 9, 0),
+    });
+  }
+  // floating part (bridge wing) to exercise min_height
+  elements.push({
+    type: 'way', id: id++,
+    tags: { 'building:part': 'yes', height: '18', min_height: '12' },
+    geometry: rect(domLon - 36 * M_LON, domLat, 14, 20, 0),
+  });
+
+  // tram line along the east bank
+  elements.push({
+    type: 'way', id: id++, tags: { railway: 'tram' },
+    geometry: [
+      { lon: 9.9335, lat: 49.787 },
+      { lon: 9.9335, lat: 49.794 },
+      { lon: 9.9335, lat: 49.801 },
+    ],
   });
 
   // Roads: riverside primaries + grid + bridge at the Alte Mainbrücke spot
@@ -203,16 +239,20 @@ try {
     console.log(`${name}.png`);
   };
 
+  // slider is minutes-of-day; the app boots at computed dusk
+  const dusk = Number(await page.evaluate(() => document.getElementById('time-slider').value));
+  console.log('dusk minutes:', dusk);
+
   // Vista: above the old town looking west to the fortress hill
   await teleport([480, 290, 420, -430, 110, 245]);
   await shoot('vista-dusk');
-  await setTime(100);
+  await setTime(1415); // 23:35
   await shoot('vista-night');
-  await setTime(0);
+  await setTime(850); // 14:10
   await shoot('vista-day');
 
-  // Close-up over the synthetic Altstadt
-  await setTime(50);
+  // Close-up over the synthetic Altstadt at dusk
+  await setTime(dusk);
   await teleport([720, 190, 380, 300, 15, -120]);
   await shoot('city-dusk');
 

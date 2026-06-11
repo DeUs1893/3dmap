@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { LANDMARKS } from './config.js';
 import { project, hash01 } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, ringArea, ringCentroid, triangulatePolygon } from './polyutil.js';
+import {
+  projectRing,
+  ringArea,
+  ringCentroid,
+  triangulatePolygon,
+  subdivideTriangles,
+} from './polyutil.js';
 
 const WALL_PALETTE = [0xc9b896, 0xbfae90, 0xd2c2a4, 0xb3a288, 0xc4ad9d, 0xa9ab97, 0xcbb6a8, 0xbdb09a].map(
   (c) => new THREE.Color(c)
@@ -10,9 +16,10 @@ const WALL_PALETTE = [0xc9b896, 0xbfae90, 0xd2c2a4, 0xb3a288, 0xc4ad9d, 0xa9ab97
 const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f].map((c) => new THREE.Color(c));
 const STONE = new THREE.Color(0xb6a890);
 const STONE_ROOF = new THREE.Color(0x6f6a60);
+const COPPER = new THREE.Color(0x4e7d6e); // patinated church roofs/domes
 
 function isStone(type) {
-  return type === 'church' || type === 'cathedral' || type === 'chapel' || type === 'castle';
+  return type === 'church' || type === 'cathedral' || type === 'chapel' || type === 'castle' || type === 'tower';
 }
 
 // Per-building floodlight factor from landmark proximity
@@ -27,9 +34,9 @@ function floodFactor(centroid) {
 }
 
 export const buildingUniforms = {
-  u_windowGlow: { value: 1.6 },
-  u_litRatio: { value: 0.55 },
-  u_floodGlow: { value: 0.55 },
+  u_windowGlow: { value: 1.05 },
+  u_litRatio: { value: 0.45 },
+  u_floodGlow: { value: 0.3 },
 };
 
 export function createBuildingMaterial() {
@@ -74,13 +81,13 @@ export function createBuildingMaterial() {
         `#include <emissivemap_fragment>
         {
           float isWall = vExtra.y;
-          float bHeight = vExtra.w;
+          float eaveH = vExtra.w;
           vec2 grid = vec2(2.7, 3.1);
           vec2 local = vWin - vec2(0.0, 0.9);
           vec2 cell = floor(local / grid);
           vec2 cuv = fract(local / grid);
           float inWin = step(0.24, cuv.x) * step(cuv.x, 0.76) * step(0.28, cuv.y) * step(cuv.y, 0.78);
-          float validRow = step(0.9, vWin.y) * step(vWin.y, bHeight - 0.8);
+          float validRow = step(0.9, vWin.y) * step(vWin.y, eaveH - 0.8);
           float h = winHash(cell, vExtra.x);
           float lit = step(1.0 - u_litRatio, h);
           float coolMix = step(0.92, fract(h * 13.0));
@@ -96,9 +103,138 @@ export function createBuildingMaterial() {
   return mat;
 }
 
+// ---------------------------------------------------------------------------
+// Roof shapes
+// ---------------------------------------------------------------------------
+
+// Oriented bounding box via the footprint's principal axis
+function orientedBox(ring) {
+  let cx = 0;
+  let cy = 0;
+  for (const p of ring) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= ring.length;
+  cy /= ring.length;
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (const p of ring) {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  let axis = new THREE.Vector2(Math.cos(theta), Math.sin(theta));
+  let perp = new THREE.Vector2(-axis.y, axis.x);
+  let minA = Infinity, maxA = -Infinity, minB = Infinity, maxB = -Infinity;
+  for (const p of ring) {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    const a = dx * axis.x + dy * axis.y;
+    const b = dx * perp.x + dy * perp.y;
+    minA = Math.min(minA, a); maxA = Math.max(maxA, a);
+    minB = Math.min(minB, b); maxB = Math.max(maxB, b);
+  }
+  if (maxA - minA < maxB - minB) {
+    [axis, perp] = [perp, axis];
+    [minA, minB] = [minB, minA];
+    [maxA, maxB] = [maxB, maxA];
+  }
+  const c = new THREE.Vector2(
+    cx + axis.x * (minA + maxA) / 2 + perp.x * (minB + maxB) / 2,
+    cy + axis.y * (minA + maxA) / 2 + perp.y * (minB + maxB) / 2
+  );
+  return {
+    c,
+    axis,
+    perp,
+    halfLen: Math.max(0.5, (maxA - minA) / 2),
+    halfWidth: Math.max(0.5, (maxB - minB) / 2),
+  };
+}
+
+const GABLE_DEFAULT_TYPES = new Set([
+  'yes', 'house', 'detached', 'semidetached_house', 'terrace', 'residential', 'apartments',
+]);
+
+function resolveRoof(b, outer, holes) {
+  let shape = b.roof?.shape ?? null;
+  if (shape === 'flat') return null;
+  const area = Math.abs(ringArea(outer));
+  if (!shape) {
+    // German old towns are gabled by default; keep big/complex footprints flat
+    const ok =
+      holes.length === 0 &&
+      outer.length <= 12 &&
+      area < 700 &&
+      (b.minHeight ?? 0) === 0 &&
+      GABLE_DEFAULT_TYPES.has(b.type);
+    if (!ok) return null;
+    shape = 'gabled';
+  }
+  const obb = orientedBox(outer);
+  const defaultH = {
+    gabled: Math.min(4.5, obb.halfWidth * 0.8),
+    hipped: Math.min(4.5, obb.halfWidth * 0.8),
+    pyramidal: Math.min(8, obb.halfWidth * 1.1),
+    dome: obb.halfWidth * 0.9,
+    onion: obb.halfWidth * 1.1,
+    skillion: Math.min(3, obb.halfWidth * 0.4),
+    gambrel: Math.min(5, obb.halfWidth * 0.9),
+    round: Math.min(4, obb.halfWidth * 0.7),
+  };
+  const roofH = b.roof?.height ?? defaultH[shape] ?? Math.min(4, obb.halfWidth * 0.7);
+  if (!(roofH > 0.3)) return null;
+
+  const { c, axis, perp, halfLen, halfWidth } = obb;
+  const axDist = (p) => Math.abs((p.x - c.x) * axis.x + (p.y - c.y) * axis.y);
+  const perpDist = (p) => Math.abs((p.x - c.x) * perp.x + (p.y - c.y) * perp.y);
+  let tFn;
+  switch (shape) {
+    case 'hipped': {
+      const ridgeHalf = Math.max(0, halfLen - halfWidth);
+      tFn = (p) => 1 - Math.hypot(Math.max(0, axDist(p) - ridgeHalf), perpDist(p)) / halfWidth;
+      break;
+    }
+    case 'pyramidal':
+      tFn = (p) => 1 - Math.max(axDist(p) / halfLen, perpDist(p) / halfWidth);
+      break;
+    case 'dome':
+    case 'onion':
+    case 'round': {
+      tFn = (p) => {
+        const r = Math.max(axDist(p) / halfLen, perpDist(p) / halfWidth);
+        return Math.sqrt(Math.max(0, 1 - r * r));
+      };
+      break;
+    }
+    case 'skillion':
+      tFn = (p) => (((p.x - c.x) * perp.x + (p.y - c.y) * perp.y) / halfWidth + 1) / 2;
+      break;
+    case 'gambrel':
+    case 'gabled':
+    default:
+      tFn = (p) => 1 - perpDist(p) / halfWidth;
+      break;
+  }
+  const isDome = shape === 'dome' || shape === 'onion' || shape === 'round';
+  return {
+    shape,
+    height: roofH,
+    maxEdge: THREE.MathUtils.clamp(halfWidth / (isDome ? 4 : 2.5), 2, 10),
+    t: (p) => THREE.MathUtils.clamp(tFn(p), 0, 1),
+    isDome,
+  };
+}
+
 /**
- * Builds one merged mesh for all buildings.
- * Attributes: position, normal, color, aWin (u along wall, v above base), aExtra (seed, isWall, flood, height)
+ * Builds one merged mesh for buildings and building parts.
+ * Attributes: position, normal, color, aWin (u along wall, v above base),
+ * aExtra (seed, isWall, flood, eave height above base)
  */
 export async function buildBuildings(buildings, onProgress = () => {}) {
   const pos = [];
@@ -106,13 +242,11 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
   const win = [];
   const extra = [];
 
-  const tmpColor = new THREE.Color();
-
-  const pushTri = (ax, ay, az, bx, by, bz, cx, cy, cz, c, uvs, seed, isWall, flood, height) => {
+  const pushTri = (ax, ay, az, bx, by, bz, cx, cy, cz, c, uvs, seed, isWall, flood, eaveH) => {
     pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
     for (let k = 0; k < 3; k++) col.push(c.r, c.g, c.b);
     win.push(uvs[0], uvs[1], uvs[2], uvs[3], uvs[4], uvs[5]);
-    for (let k = 0; k < 3; k++) extra.push(seed, isWall, flood, height);
+    for (let k = 0; k < 3; k++) extra.push(seed, isWall, flood, eaveH);
   };
 
   let processed = 0;
@@ -130,30 +264,39 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
     const holes = b.holes.map(projectRing).filter((h) => h.length >= 3);
 
     // base/top elevation from terrain under the footprint
-    let base = Infinity;
+    let ground = Infinity;
     let crest = -Infinity;
     for (const p of outer) {
       const g = groundY(p.x, p.y);
-      base = Math.min(base, g);
+      ground = Math.min(ground, g);
       crest = Math.max(crest, g);
     }
-    if (!Number.isFinite(base)) continue;
+    if (!Number.isFinite(ground)) continue;
+    const minHeight = b.minHeight ?? 0;
     const height = Math.max(3, b.height);
     // on steep slopes keep the uphill side visible too
-    const top = Math.max(base + height, crest + Math.min(height, 10));
-    const effHeight = top - base;
-    const skirt = base - 6; // walls extend below ground on slopes
+    const top = Math.max(ground + height, crest + Math.min(height, 10));
+    const baseY = ground + minHeight;
+    const bottom = minHeight > 0 ? baseY : ground - 6; // skirt into slopes
+
+    const roof = resolveRoof(b, outer, holes);
+    const roofH = roof ? Math.min(roof.height, (top - baseY) * 0.7) : 0;
+    const eave = top - roofH;
+    const eaveH = eave - baseY;
+    const roofYAt = roof ? (p) => eave + roofH * roof.t(p) : () => top;
 
     const seed = hash01(b.id);
     const stone = isStone(b.type);
     const centroid = ringCentroid(outer);
     const flood = floodFactor(centroid);
 
-    const wallC = tmpColor
-      .copy(stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
+    const wallC = (stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
       .clone()
       .multiplyScalar(0.85 + hash01(b.id + 7) * 0.3);
-    const roofC = (stone ? STONE_ROOF : ROOF_PALETTE[Math.floor(hash01(b.id + 13) * ROOF_PALETTE.length)])
+    const roofC = (stone
+      ? roof?.isDome ? COPPER : STONE_ROOF
+      : ROOF_PALETTE[Math.floor(hash01(b.id + 13) * ROOF_PALETTE.length)]
+    )
       .clone()
       .multiplyScalar(0.85 + hash01(b.id + 31) * 0.3);
 
@@ -171,24 +314,46 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
         const segLen = a.distanceTo(c);
         if (segLen < 0.01) continue;
         const u2 = u + segLen;
-        // two triangles: (a,skirt)-(c,skirt)-(c,top) and (a,skirt)-(c,top)-(a,top)
-        pushTri(a.x, skirt, a.y, c.x, skirt, c.y, c.x, top, c.y, wallC, [u, skirt - base, u2, skirt - base, u2, effHeight], seed, 1, flood, effHeight);
-        pushTri(a.x, skirt, a.y, c.x, top, c.y, a.x, top, a.y, wallC, [u, skirt - base, u2, effHeight, u, effHeight], seed, 1, flood, effHeight);
+        const topA = roofYAt(a);
+        const topC = roofYAt(c);
+        pushTri(a.x, bottom, a.y, c.x, bottom, c.y, c.x, topC, c.y, wallC, [u, bottom - baseY, u2, bottom - baseY, u2, topC - baseY], seed, 1, flood, eaveH);
+        pushTri(a.x, bottom, a.y, c.x, topC, c.y, a.x, topA, a.y, wallC, [u, bottom - baseY, u2, topC - baseY, u, topA - baseY], seed, 1, flood, eaveH);
         u = u2;
       }
     }
 
-    // --- roof ---
+    // --- roof cap ---
     const tri = triangulatePolygon(outer, holes);
     if (tri) {
-      for (const [i, j, k] of tri.triangles) {
-        const p1 = tri.points[i];
-        const p2 = tri.points[j];
-        const p3 = tri.points[k];
+      let verts = tri.points;
+      let tris = tri.triangles;
+      if (roof) {
+        ({ verts, tris } = subdivideTriangles(verts, tris, roof.maxEdge));
+      }
+      for (const [i, j, k] of tris) {
+        const p1 = verts[i];
+        const p2 = verts[j];
+        const p3 = verts[k];
         // ensure upward-facing winding (y-up, ring in xz with z = south)
         const cross = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
         const [q2, q3] = cross > 0 ? [p3, p2] : [p2, p3];
-        pushTri(p1.x, top, p1.y, q2.x, top, q2.y, q3.x, top, q3.y, roofC, [0, 0, 0, 0, 0, 0], seed, 0, flood * 0.7, effHeight);
+        pushTri(
+          p1.x, roofYAt(p1), p1.y,
+          q2.x, roofYAt(q2), q2.y,
+          q3.x, roofYAt(q3), q3.y,
+          roofC, [0, 0, 0, 0, 0, 0], seed, 0, flood * 0.7, eaveH
+        );
+      }
+      // floating parts get a bottom cap (visible from below)
+      if (minHeight > 0) {
+        for (const [i, j, k] of tri.triangles) {
+          const p1 = tri.points[i];
+          const p2 = tri.points[j];
+          const p3 = tri.points[k];
+          const cross = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
+          const [q2, q3] = cross > 0 ? [p2, p3] : [p3, p2]; // downward
+          pushTri(p1.x, baseY, p1.y, q2.x, baseY, q2.y, q3.x, baseY, q3.y, wallC, [0, 0, 0, 0, 0, 0], seed, 0, flood * 0.5, eaveH);
+        }
       }
     }
   }

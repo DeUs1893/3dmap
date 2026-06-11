@@ -45,8 +45,21 @@
 
       <div class="hud-time">
         <span class="time-icon">☀️</span>
-        <input id="time-slider" type="range" min="0" max="100" value="50" aria-label="Tageszeit" />
+        <input id="time-slider" type="range" min="0" max="1439" step="5" value="1200" aria-label="Uhrzeit" />
         <span class="time-icon">🌙</span>
+        <span id="time-label">20:00</span>
+        <button id="refl-toggle" class="toggle on" title="Wasser-Spiegelungen an/aus">✨</button>
+      </div>
+
+      <div class="hud-search">
+        <input
+          id="search"
+          type="search"
+          placeholder="Adresse oder Ort in Würzburg suchen …"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div id="search-hint" class="hidden"></div>
       </div>
 
       <nav class="hud-landmarks" id="landmark-list" aria-label="Sehenswürdigkeiten"></nav>

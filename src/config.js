@@ -18,7 +18,7 @@ export const BASE_ELEVATION = 166;
 export const TERRAIN_MARGIN = 650; // meters
 
 // Version string for the IndexedDB cache of OSM data — bump to force a refetch
-export const OSM_CACHE_KEY = 'wuerzburg-osm-v1';
+export const OSM_CACHE_KEY = 'wuerzburg-osm-v2';
 
 export const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',

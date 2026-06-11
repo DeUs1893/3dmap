@@ -64,9 +64,25 @@ export function buildLamps(roads, texture) {
   return points;
 }
 
-/** Animated car lights flowing along major roads */
+/** Animated light points flowing along paths (cars on roads, trams on rails) */
 export class TrafficSystem {
-  constructor(trafficPaths, texture) {
+  constructor(trafficPaths, texture, opts = {}) {
+    const {
+      metersPerVehicle = 110,
+      maxCount = 380,
+      minCount = 40,
+      speedMin = 7,
+      speedMax = 14,
+      size = 4,
+      colorForward = 0xfff4d6,
+      colorBackward = 0xff5a3c,
+      heightOffset = 0.8,
+      name = 'traffic',
+    } = opts;
+    this.heightOffset = heightOffset;
+    this.speedMin = speedMin;
+    this.speedMax = speedMax;
+
     this.paths = trafficPaths
       .filter((p) => p.pts.length >= 2)
       .map((p) => {
@@ -79,7 +95,9 @@ export class TrafficSystem {
       .filter((p) => p.total > 60);
 
     const totalLen = this.paths.reduce((s, p) => s + p.total, 0);
-    const count = Math.min(380, Math.max(40, Math.round(totalLen / 110)));
+    const count = this.paths.length
+      ? Math.min(maxCount, Math.max(minCount, Math.round(totalLen / metersPerVehicle)))
+      : 0;
     this.cars = [];
     for (let i = 0; i < count; i++) {
       const path = this.paths[Math.floor(Math.random() * this.paths.length)];
@@ -87,15 +105,15 @@ export class TrafficSystem {
         path,
         s: Math.random() * path.total,
         dir: Math.random() < 0.5 ? 1 : -1,
-        speed: 7 + Math.random() * 7,
+        speed: speedMin + Math.random() * (speedMax - speedMin),
       });
     }
 
     const geo = new THREE.BufferGeometry();
-    this.positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    const white = new THREE.Color(0xfff4d6);
-    const red = new THREE.Color(0xff5a3c);
+    this.positions = new Float32Array(Math.max(1, count) * 3);
+    const colors = new Float32Array(Math.max(1, count) * 3);
+    const white = new THREE.Color(colorForward);
+    const red = new THREE.Color(colorBackward);
     for (let i = 0; i < count; i++) {
       const c = this.cars[i].dir > 0 ? white : red;
       colors[i * 3] = c.r;
@@ -107,7 +125,7 @@ export class TrafficSystem {
     this.points = new THREE.Points(
       geo,
       new THREE.PointsMaterial({
-        size: 4,
+        size,
         map: texture,
         vertexColors: true,
         transparent: true,
@@ -116,8 +134,9 @@ export class TrafficSystem {
         sizeAttenuation: true,
       })
     );
-    this.points.name = 'traffic';
+    this.points.name = name;
     this.points.frustumCulled = false;
+    this.points.visible = count > 0;
   }
 
   update(dt) {
@@ -143,7 +162,7 @@ export class TrafficSystem {
       const t = (car.s - cum[lo]) / Math.max(0.001, cum[hi] - cum[lo]);
       const x = pts[lo].x + (pts[hi].x - pts[lo].x) * t;
       const z = pts[lo].y + (pts[hi].y - pts[lo].y) * t;
-      const y = ys[lo] + (ys[hi] - ys[lo]) * t + 0.8;
+      const y = ys[lo] + (ys[hi] - ys[lo]) * t + this.heightOffset;
       this.positions[i * 3] = x;
       this.positions[i * 3 + 1] = y;
       this.positions[i * 3 + 2] = z;
