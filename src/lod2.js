@@ -46,8 +46,16 @@ export async function loadLOD2(baseUrl = '') {
 
   for (const b of meta.buildings) {
     const seed = hash01(Math.round(b.cx * 7 + b.cz * 13));
-    // align the surveyed base height with our terrain
-    const yShift = groundY(b.cx, b.cz) - b.minH - 0.4;
+    // Align the surveyed base with our (coarser) terrain. Long structures like
+    // the fortress walls span slopes, so sample the ground under many vertices
+    // and sink the base to the lowest point — buried beats floating.
+    let minGround = groundY(b.cx, b.cz);
+    const stride = Math.max(1, Math.floor(b.n / 32));
+    for (let i = b.s; i < b.s + b.n; i += stride) {
+      const g = groundY(qPos[i * 3] / 10, qPos[i * 3 + 2] / 10);
+      if (g < minGround) minGround = g;
+    }
+    const yShift = minGround - b.minH - 0.4;
     let flood = 0;
     for (const lm of landmarkPts) {
       const d = Math.hypot(b.cx - lm.x, b.cz - lm.z);
@@ -78,6 +86,31 @@ export async function loadLOD2(baseUrl = '') {
       extra[i * 4 + 3] = b.eave;
     }
   }
+
+  // corrupt source surfaces (2D posLists, parser slips) yield triangles spanning
+  // hundreds of meters — collapse anything with an implausibly long edge
+  let dropped = 0;
+  const MAX_EDGE_SQ = 220 * 220;
+  for (let t = 0; t < n; t += 3) {
+    let bad = false;
+    for (let k = 0; k < 3 && !bad; k++) {
+      const a = (t + k) * 3;
+      const b = (t + ((k + 1) % 3)) * 3;
+      const dx = pos[a] - pos[b];
+      const dy = pos[a + 1] - pos[b + 1];
+      const dz = pos[a + 2] - pos[b + 2];
+      if (dx * dx + dy * dy + dz * dz > MAX_EDGE_SQ) bad = true;
+    }
+    if (bad) {
+      for (let k = 1; k < 3; k++) {
+        pos[(t + k) * 3] = pos[t * 3];
+        pos[(t + k) * 3 + 1] = pos[t * 3 + 1];
+        pos[(t + k) * 3 + 2] = pos[t * 3 + 2];
+      }
+      dropped++;
+    }
+  }
+  if (dropped) console.info(`[lod2] ${dropped} fehlerhafte Riesen-Dreiecke entfernt`);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
