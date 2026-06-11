@@ -213,8 +213,10 @@ for (const gml of gmls) {
     const start = positions.length / 3;
     for (const poly of converted) {
       const flag = ROOF_KIND[poly.kind] ?? 0;
-      // wall window coordinates: meters along the wall's horizontal axis
+      // wall window coordinates: meters along the wall's horizontal axis,
+      // zero-based per surface (no wrapping — interpolation must stay local)
       let dirX = 1, dirZ = 0;
+      let uMin = 0;
       if (flag === 0) {
         const a = poly.ring[0];
         let best = 0;
@@ -229,6 +231,10 @@ for (const gml of gmls) {
         }
         const len = Math.hypot(dirX, dirZ) || 1;
         dirX /= len; dirZ /= len;
+        uMin = Infinity;
+        for (const [x, , z] of poly.ring) {
+          uMin = Math.min(uMin, x * dirX + z * dirZ);
+        }
       }
       for (const tri of triangulate3D(poly.ring)) {
         // drop slivers that collapse to zero area after 0.1 m quantization
@@ -238,10 +244,9 @@ for (const gml of gmls) {
         if (cx2 * cx2 + cy2 * cy2 + cz2 * cz2 < 0.0016) continue; // area < 0.02 m²
         for (const [x, y, z] of tri) {
           positions.push(Math.round(x * 10), Math.round(y * 10), Math.round(z * 10));
-          let u = flag === 0 ? x * dirX + z * dirZ : 0;
-          u = ((u % 800) + 800) % 800; // wrap into uint16 range, keeps window rhythm
+          const u = flag === 0 ? x * dirX + z * dirZ - uMin : 0;
           const v = y - (minH - BASE_ELEVATION);
-          wins.push(Math.round(u * 10), Math.max(0, Math.round(v * 10)));
+          wins.push(Math.min(65535, Math.max(0, Math.round(u * 10))), Math.max(0, Math.round(v * 10)));
           flags.push(flag === 0 ? 1 : 0); // wall=1, roof/ground=0 for the shader
         }
       }

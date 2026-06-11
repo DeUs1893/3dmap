@@ -6,14 +6,54 @@ import * as THREE from 'three';
 import { LANDMARKS } from './config.js';
 import { project, hash01 } from './geo.js';
 import { groundY } from './terrain.js';
-import { createBuildingMaterial } from './buildings.js';
+import { createBuildingMaterial, isStone } from './buildings.js';
+import { projectRing, pointInRing } from './polyutil.js';
 
 const WALL_PALETTE = [0xc9b896, 0xbfae90, 0xd2c2a4, 0xb3a288, 0xc4ad9d, 0xa9ab97, 0xcbb6a8, 0xbdb09a].map(
   (c) => new THREE.Color(c)
 );
 const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f].map((c) => new THREE.Color(c));
+const STONE = new THREE.Color(0xb6a890);
+const STONE_ROOF = new THREE.Color(0x77705f);
 
-export async function loadLOD2(baseUrl = '') {
+// Spatial index over OSM footprints so surveyed LoD2 buildings inherit their
+// type (church towers must not get the residential window grid …)
+function buildTypeIndex(osmBuildings) {
+  const CELL = 80;
+  const cells = new Map();
+  const entries = [];
+  for (const b of osmBuildings) {
+    if (!b.type || b.type === 'yes') continue;
+    const ring = projectRing(b.outer);
+    if (ring.length < 3) continue;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const v of ring) {
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minZ = Math.min(minZ, v.y); maxZ = Math.max(maxZ, v.y);
+    }
+    const idx = entries.push({ ring, minX, maxX, minZ, maxZ, type: b.type }) - 1;
+    for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) {
+      for (let cz = Math.floor(minZ / CELL); cz <= Math.floor(maxZ / CELL); cz++) {
+        const key = `${cx}_${cz}`;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(idx);
+      }
+    }
+  }
+  return (x, z) => {
+    const bucket = cells.get(`${Math.floor(x / CELL)}_${Math.floor(z / CELL)}`);
+    if (!bucket) return null;
+    for (const i of bucket) {
+      const e = entries[i];
+      if (x >= e.minX && x <= e.maxX && z >= e.minZ && z <= e.maxZ && pointInRing(x, z, e.ring)) {
+        return e.type;
+      }
+    }
+    return null;
+  };
+}
+
+export async function loadLOD2(baseUrl = '', osmBuildings = []) {
   let meta;
   let bin;
   try {
@@ -42,7 +82,9 @@ export async function loadLOD2(baseUrl = '') {
   const extra = new Float32Array(n * 4);
 
   const landmarkPts = LANDMARKS.map((lm) => ({ ...project(lm.lon, lm.lat), r: lm.floodRadius }));
+  const typeAt = buildTypeIndex(osmBuildings);
   const tmp = new THREE.Color();
+  let stoneCount = 0;
 
   for (const b of meta.buildings) {
     const seed = hash01(Math.round(b.cx * 7 + b.cz * 13));
@@ -61,13 +103,20 @@ export async function loadLOD2(baseUrl = '') {
       const d = Math.hypot(b.cx - lm.x, b.cz - lm.z);
       if (d < lm.r) flood = Math.max(flood, 1 - (d / lm.r) * 0.5);
     }
+    // churches, chapels, towers & castles: stone look, no window grid
+    const stone = isStone(typeAt(b.cx, b.cz));
+    if (stone) stoneCount++;
     const wallC = tmp
-      .copy(WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
+      .copy(stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
       .multiplyScalar(0.85 + hash01(Math.round(b.cx * 31)) * 0.3)
       .clone();
-    const roofC = ROOF_PALETTE[Math.floor(hash01(Math.round(b.cz * 17)) * ROOF_PALETTE.length)]
+    const roofC = (stone
+      ? STONE_ROOF
+      : ROOF_PALETTE[Math.floor(hash01(Math.round(b.cz * 17)) * ROOF_PALETTE.length)]
+    )
       .clone()
       .multiplyScalar(0.85 + hash01(Math.round(b.cx * 3 + b.cz)) * 0.3);
+    const eaveForWindows = stone ? 0 : b.eave; // eave 0 → windowMask never validates
 
     for (let i = b.s; i < b.s + b.n; i++) {
       pos[i * 3] = qPos[i * 3] / 10;
@@ -83,7 +132,7 @@ export async function loadLOD2(baseUrl = '') {
       extra[i * 4] = seed;
       extra[i * 4 + 1] = isWall;
       extra[i * 4 + 2] = flood * (isWall ? 1 : 0.7);
-      extra[i * 4 + 3] = b.eave;
+      extra[i * 4 + 3] = eaveForWindows;
     }
   }
 
@@ -138,6 +187,8 @@ export async function loadLOD2(baseUrl = '') {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings-lod2';
-  console.info(`[lod2] ${meta.buildings.length} amtliche Gebäudemodelle geladen`);
+  console.info(
+    `[lod2] ${meta.buildings.length} amtliche Gebäudemodelle geladen, ${stoneCount} als Kirche/Turm/Burg erkannt`
+  );
   return { mesh, count: meta.buildings.length };
 }

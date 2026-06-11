@@ -18,7 +18,7 @@ const STONE = new THREE.Color(0xb6a890);
 const STONE_ROOF = new THREE.Color(0x6f6a60);
 const COPPER = new THREE.Color(0x4e7d6e); // patinated church roofs/domes
 
-function isStone(type) {
+export function isStone(type) {
   return (
     type === 'church' || type === 'cathedral' || type === 'chapel' ||
     type === 'castle' || type === 'tower' || type === 'palace' || type === 'monastery'
@@ -113,12 +113,15 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         float winHash(vec2 cell, float seed) {
           return fract(sin(dot(cell + seed * 91.7, vec2(12.9898, 78.233))) * 43758.5453);
         }
-        // 1 inside a window pane of the facade grid, 0 on masonry
-        float windowMask(vec2 win, float eaveH) {
+        // 1 inside a window pane of the facade grid, 0 on masonry;
+        // ~10% of cells stay blank so facades don't look like graph paper
+        float windowMask(vec2 win, float eaveH, float seed) {
+          vec2 cell = floor((win - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
           vec2 cuv = fract((win - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
           float inWin = step(0.24, cuv.x) * step(cuv.x, 0.76) * step(0.28, cuv.y) * step(cuv.y, 0.78);
           float validRow = step(0.9, win.y) * step(win.y, eaveH - 0.8);
-          return inWin * validRow;
+          float exists = step(0.1, winHash(cell + 23.0, seed));
+          return inWin * validRow * exists;
         }`
       )
       .replace(
@@ -134,8 +137,8 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
           diffuseColor.rgb *= mix(1.0, baseShade * ledge * grain, wall);
 
           // daylight windows: darker glass panes set into the facade
-          float win = windowMask(vWin, vExtra.w) * wall;
-          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.30, 0.34, 0.40) + vec3(0.02, 0.03, 0.05), win * 0.9);
+          float win = windowMask(vWin, vExtra.w, vExtra.x) * wall;
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.32, 0.36, 0.42) + vec3(0.03, 0.04, 0.06), win * 0.78);
 
           // roof tiles: rows running along the eaves (perpendicular to the slope)
           vec3 faceN = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
@@ -154,18 +157,14 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         {
           float isWall = vExtra.y;
           float eaveH = vExtra.w;
-          vec2 grid = vec2(2.7, 3.1);
-          vec2 local = vWin - vec2(0.0, 0.9);
-          vec2 cell = floor(local / grid);
-          vec2 cuv = fract(local / grid);
-          float inWin = step(0.24, cuv.x) * step(cuv.x, 0.76) * step(0.28, cuv.y) * step(cuv.y, 0.78);
-          float validRow = step(0.9, vWin.y) * step(vWin.y, eaveH - 0.8);
+          vec2 cell = floor((vWin - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
+          float pane = windowMask(vWin, eaveH, vExtra.x);
           float h = winHash(cell, vExtra.x);
           float lit = step(1.0 - u_litRatio, h);
           float coolMix = step(0.92, fract(h * 13.0));
           vec3 winCol = mix(vec3(1.0, 0.62, 0.30), vec3(0.72, 0.80, 1.0), coolMix);
           float flicker = 0.85 + 0.15 * fract(h * 31.0);
-          totalEmissiveRadiance += winCol * (inWin * lit * validRow * isWall * flicker) * u_windowGlow;
+          totalEmissiveRadiance += winCol * (pane * lit * isWall * flicker) * u_windowGlow;
           float falloff = mix(0.4, exp(-max(vWin.y, 0.0) * 0.06), isWall);
           totalEmissiveRadiance += vec3(1.0, 0.74, 0.42) * vExtra.z * falloff * u_floodGlow;
         }`
