@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Würzburg 3D — Interaktive Stadtkarte</title>
+    <meta name="description" content="Interaktive 3D-Karte von Würzburg mit echten OpenStreetMap-Daten und Geländemodell." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Loading -->
+    <div id="loader">
+      <div class="loader-inner">
+        <h1 class="brand-title">WÜRZBURG</h1>
+        <p class="brand-sub">Dreidimensionale Stadtkarte · Echte Geodaten</p>
+        <div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+        <p class="status" id="status">Initialisiere …</p>
+      </div>
+      <p class="loader-credit">Daten © OpenStreetMap-Mitwirkende · Gelände: Mapzen/AWS Terrain Tiles</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error" class="hidden">
+      <div class="error-card">
+        <h2>Daten konnten nicht geladen werden</h2>
+        <p id="error-msg"></p>
+        <button id="retry">Erneut versuchen</button>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <header class="hud-brand">
+        <h1>WÜRZBURG<span>3D</span></h1>
+        <p id="hud-stats"></p>
+      </header>
+
+      <div class="hud-time">
+        <span class="time-icon">☀️</span>
+        <input id="time-slider" type="range" min="0" max="100" value="50" aria-label="Tageszeit" />
+        <span class="time-icon">🌙</span>
+      </div>
+
+      <nav class="hud-landmarks" id="landmark-list" aria-label="Sehenswürdigkeiten"></nav>
+
+      <footer class="hud-help">
+        <div class="help-row" id="help-orbit">
+          <kbd>🖱 Ziehen</kbd> Drehen · <kbd>Rechte Maus</kbd> Verschieben · <kbd>Scrollen</kbd> Zoom ·
+          <kbd>F</kbd> Flugmodus
+        </div>
+        <div class="help-row hidden" id="help-fly">
+          <kbd>W A S D</kbd> Bewegen · <kbd>Q / E</kbd> Sinken / Steigen · <kbd>Shift</kbd> Boost ·
+          <kbd>Scrollen</kbd> Tempo · <kbd>F</kbd> Orbit
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

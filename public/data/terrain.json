@@ -1,0 +1,15 @@
+{
+  "zoom": 14,
+  "tileXMin": 8641,
+  "tileYMin": 5569,
+  "width": 1536,
+  "height": 1280,
+  "unit": "decimeter",
+  "encoding": "uint16-le",
+  "bbox": {
+    "south": 49.762,
+    "west": 9.875,
+    "north": 49.822,
+    "east": 9.985
+  }
+}

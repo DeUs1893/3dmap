@@ -1,0 +1,26 @@
+{
+  "name": "wuerzburg-3dmap",
+  "version": "1.0.0",
+  "description": "Interaktive 3D-Karte von Würzburg — echte OSM-Daten, Geländemodell, freie Kamera",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DeUs1893/3dmap"
+  },
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "bake-terrain": "node tools/bake-terrain.mjs",
+    "test": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer": "^25.1.0",
+    "vite": "^5.4.21"
+  }
+}

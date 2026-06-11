@@ -1,0 +1,32 @@
+import { ORIGIN, BASE_ELEVATION } from './config.js';
+
+const M_PER_DEG_LAT = 111194;
+const M_PER_DEG_LON = 111319.49 * Math.cos((ORIGIN.lat * Math.PI) / 180);
+
+// Local scene coordinates: x = east (m), z = south (m), y = up (m, relative to BASE_ELEVATION)
+export function project(lon, lat) {
+  return {
+    x: (lon - ORIGIN.lon) * M_PER_DEG_LON,
+    z: -(lat - ORIGIN.lat) * M_PER_DEG_LAT,
+  };
+}
+
+export function unproject(x, z) {
+  return {
+    lon: ORIGIN.lon + x / M_PER_DEG_LON,
+    lat: ORIGIN.lat - z / M_PER_DEG_LAT,
+  };
+}
+
+export function elevationToY(ele) {
+  return ele - BASE_ELEVATION;
+}
+
+// Deterministic pseudo-random in [0,1) from an integer seed
+export function hash01(seed) {
+  let h = seed | 0;
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
