@@ -5,18 +5,86 @@ import { groundY } from './terrain.js';
 import { projectRing, densifyPath, clipPathToRect } from './polyutil.js';
 
 const ROAD_COLORS = {
-  0: new THREE.Color(0x4a4e57),
-  1: new THREE.Color(0x474b54),
-  2: new THREE.Color(0x42464e),
-  3: new THREE.Color(0x3c4047),
-  4: new THREE.Color(0x4d4a44), // pedestrian: warm cobblestone
-  5: new THREE.Color(0x35383e),
-  6: new THREE.Color(0x3b3a35),
+  0: new THREE.Color(0x575b63),
+  1: new THREE.Color(0x53575f),
+  2: new THREE.Color(0x4d5159),
+  3: new THREE.Color(0x46494f),
+  4: new THREE.Color(0x5e574a), // pedestrian: warm cobblestone
+  5: new THREE.Color(0x3d4046),
+  6: new THREE.Color(0x4a463c), // paths: gravel
 };
 const BRIDGE_SIDE = new THREE.Color(0x5a5247);
 const PARAPET = new THREE.Color(0x6e6557);
 const PIER = new THREE.Color(0x55503f);
 const RAIL_COLOR = new THREE.Color(0x2e2f33);
+
+// Asphalt grain, dashed center lines on major roads, edge lines and a light
+// curb seam - driven by aRoad = (meters along road, -1..1 across, rank).
+function createRoadMaterial() {
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.92,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute vec3 aRoad;
+        varying vec3 vRoad;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vRoad = aRoad;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vRoad;
+        float roadHash(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          float rank = vRoad.z;
+          float u = vRoad.x;
+          float v = vRoad.y;
+          if (rank < 6.5) {
+            // asphalt / cobble grain
+            float grain = 0.92 + 0.16 * roadHash(floor(vec2(u * 1.6, v * 5.0)));
+            diffuseColor.rgb *= grain;
+            // cobble pattern in pedestrian zones
+            if (rank > 3.5 && rank < 4.5) {
+              float cobble = 0.93 + 0.14 * roadHash(floor(vec2(u * 2.4, v * 8.0)) + 31.0);
+              diffuseColor.rgb *= cobble;
+            }
+            // dashed center line on driving roads
+            if (rank < 2.5) {
+              float dash = step(fract(u / 9.0), 0.55);
+              float line = (1.0 - smoothstep(0.025, 0.06, abs(v))) * dash;
+              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.72, 0.66), line * 0.8);
+            }
+            // solid edge lines on primaries
+            if (rank < 1.5) {
+              float edge = 1.0 - smoothstep(0.02, 0.05, abs(abs(v) - 0.8));
+              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.62, 0.58), edge * 0.55);
+            }
+            // light curb seam
+            float curb = smoothstep(0.9, 0.985, abs(v));
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.45 + vec3(0.025), curb * 0.65);
+          }
+        }`
+      );
+  };
+  return mat;
+}
 
 /**
  * Computes deck heights for a densified path. Bridges span level between
@@ -40,13 +108,14 @@ function pathHeights(pts, road) {
   return ys;
 }
 
-function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
-  const { pos, col, idx } = arrays;
+function appendRibbon(arrays, pts, ys, width, color, withSkirts, rank = 7) {
+  const { pos, col, idx, road } = arrays;
   const n = pts.length;
   if (n < 2) return;
   const half = width / 2;
   const start = pos.length / 3;
 
+  let u = 0;
   for (let i = 0; i < n; i++) {
     const prev = pts[Math.max(0, i - 1)];
     const next = pts[Math.min(n - 1, i + 1)];
@@ -58,9 +127,11 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
     // perpendicular in xz
     const px = -dz;
     const pz = dx;
+    if (i > 0) u += pts[i].distanceTo(pts[i - 1]);
     pos.push(pts[i].x + px * half, ys[i], pts[i].y + pz * half);
     pos.push(pts[i].x - px * half, ys[i], pts[i].y - pz * half);
     col.push(color.r, color.g, color.b, color.r, color.g, color.b);
+    road.push(u, 1, rank, u, -1, rank);
   }
   for (let i = 0; i < n - 1; i++) {
     const a = start + i * 2;
@@ -80,6 +151,7 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
         const z = pos[topIdx + 2];
         pos.push(x, y, z, x, y - depth, z);
         col.push(BRIDGE_SIDE.r, BRIDGE_SIDE.g, BRIDGE_SIDE.b, BRIDGE_SIDE.r * 0.6, BRIDGE_SIDE.g * 0.6, BRIDGE_SIDE.b * 0.6);
+        road.push(0, 0, 7, 0, 0, 7);
       }
       for (let i = 0; i < n - 1; i++) {
         const a = s0 + i * 2;
@@ -95,6 +167,7 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
         const z = pos[topIdx + 2];
         pos.push(x, y, z, x, y + parapetH, z);
         col.push(PARAPET.r * 0.8, PARAPET.g * 0.8, PARAPET.b * 0.8, PARAPET.r, PARAPET.g, PARAPET.b);
+        road.push(0, 0, 7, 0, 0, 7);
       }
       for (let i = 0; i < n - 1; i++) {
         const a = s0 + i * 2;
@@ -106,7 +179,7 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts) {
 
 // Stone piers from the deck down into the riverbed, every ~26 m
 function appendPiers(arrays, pts, ys, width) {
-  const { pos, col, idx } = arrays;
+  const { pos, col, idx, road } = arrays;
   const lengths = [0];
   for (let i = 1; i < pts.length; i++) lengths.push(lengths[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const total = lengths[lengths.length - 1];
@@ -140,6 +213,7 @@ function appendPiers(arrays, pts, ys, width) {
     for (const [cx, cz] of cs) {
       pos.push(cx, yTop, cz, cx, yBottom, cz);
       col.push(PIER.r, PIER.g, PIER.b, PIER.r * 0.55, PIER.g * 0.55, PIER.b * 0.55);
+      road.push(0, 0, 7, 0, 0, 7);
     }
     for (let k = 0; k < 4; k++) {
       const a = s0 + k * 2;
@@ -150,7 +224,7 @@ function appendPiers(arrays, pts, ys, width) {
 }
 
 export function buildRoads(roads, rails) {
-  const arrays = { pos: [], col: [], idx: [] };
+  const arrays = { pos: [], col: [], idx: [], road: [] };
   const trafficPaths = [];
   const tramPaths = [];
   const rect = getMapRect(450);
@@ -163,7 +237,7 @@ export function buildRoads(roads, rails) {
       if (pts.length < 2) continue;
       const ys = pathHeights(pts, road);
       const color = ROAD_COLORS[road.rank] ?? ROAD_COLORS[5];
-      appendRibbon(arrays, pts, ys, road.width, color, road.bridge);
+      appendRibbon(arrays, pts, ys, road.width, color, road.bridge, road.rank);
       if (road.bridge) {
         appendPiers(arrays, pts, ys, road.width);
         if (road.name && /mainbr/i.test(road.name)) {
@@ -179,7 +253,7 @@ export function buildRoads(roads, rails) {
       const pts = densifyPath(piece, 12);
       if (pts.length < 2) continue;
       const ys = pts.map((p) => groundY(p.x, p.y) + 0.5);
-      appendRibbon(arrays, pts, ys, rail.tram ? 2.5 : 3.2, RAIL_COLOR, false);
+      appendRibbon(arrays, pts, ys, rail.tram ? 2.5 : 3.2, RAIL_COLOR, false, 8);
       if (rail.tram) tramPaths.push({ pts, ys });
     }
   }
@@ -187,15 +261,11 @@ export function buildRoads(roads, rails) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(arrays.pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(arrays.col, 3));
+  geo.setAttribute('aRoad', new THREE.Float32BufferAttribute(arrays.road, 3));
   geo.setIndex(arrays.idx);
   geo.computeVertexNormals();
 
-  const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.92,
-    metalness: 0,
-    side: THREE.DoubleSide,
-  });
+  const mat = createRoadMaterial();
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'roads';

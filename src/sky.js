@@ -58,8 +58,9 @@ export class Atmosphere {
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
     this.sun.castShadow = true;
+    this.lightDir = new THREE.Vector3(0, 1, 0);
     const sc = this.sun.shadow.camera;
-    sc.left = -2400; sc.right = 2400; sc.top = 2400; sc.bottom = -2400;
+    sc.left = -1400; sc.right = 1400; sc.top = 1400; sc.bottom = -1400;
     sc.near = 100; sc.far = 9000;
     this.sun.shadow.mapSize.set(4096, 4096);
     this.sun.shadow.bias = -0.0004;
@@ -178,6 +179,12 @@ export class Atmosphere {
     this.lampMaterials.push({ mat, baseOpacity });
   }
 
+  /** Keeps the (smaller, sharper) shadow box centered on the view target. */
+  track(target) {
+    this.sun.target.position.set(target.x, 0, target.z);
+    this.sun.position.copy(this.sun.target.position).addScaledVector(this.lightDir, 5000);
+  }
+
   /** Sets the scene to the real solar position for "today at N minutes". */
   setClock(minutes) {
     this.minutes = minutes;
@@ -221,8 +228,8 @@ export class Atmosphere {
         -Math.cos(sAz) * Math.cos(sEl)
       );
     }
-    this.sun.position.copy(dir).multiplyScalar(5000);
-    this.sun.target.position.set(0, 0, 0);
+    this.lightDir.copy(dir);
+    this.sun.position.copy(this.sun.target.position).addScaledVector(dir, 5000);
     this.sun.color.copy(v.lightColor);
     this.sun.intensity = v.lightIntensity;
     this.sun.castShadow = true;

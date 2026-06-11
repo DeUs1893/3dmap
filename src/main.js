@@ -12,6 +12,7 @@ import { findDuskMinutes } from './sun.js';
 import { loadTerrainData, buildTerrainMesh, groundY } from './terrain.js';
 import { fetchOSM, parseOSM } from './osm.js';
 import { buildBuildings } from './buildings.js';
+import { loadLOD2 } from './lod2.js';
 import { buildRoads } from './roads.js';
 import { makeGlowTexture, buildLamps, TrafficSystem } from './lights.js';
 import { prepareWater, waterUniforms } from './water.js';
@@ -56,7 +57,7 @@ async function boot() {
   composer.addPass(new RenderPass(scene, camera));
   const gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
   gtao.output = GTAOPass.OUTPUT.Default;
-  gtao.updateGtaoMaterial({ radius: 6, distanceExponent: 1.5, thickness: 4, scale: 1.2 });
+  gtao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.5, thickness: 1.5, scale: 0.9 });
   composer.addPass(gtao);
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -117,11 +118,22 @@ async function boot() {
   setProgress(0.72);
   await new Promise((r) => requestAnimationFrame(r));
 
-  // Simple-3D: hulls detailed by building:part are replaced by their parts
-  const renderBuildings = data.buildings.filter((b) => !b.hasParts).concat(data.parts);
-  setStatus(`Errichte ${renderBuildings.length.toLocaleString('de-DE')} Gebäude …`);
-  const buildingMesh = await buildBuildings(renderBuildings, (f) => setProgress(0.72 + f * 0.22));
-  scene.add(buildingMesh);
+  // Surveyed LoD2 models (if baked) replace the extruded OSM buildings
+  setStatus('Suche amtliche LoD2-Modelle …');
+  const lod2 = await loadLOD2(import.meta.env.BASE_URL ?? './');
+  let buildingCount;
+  if (lod2) {
+    scene.add(lod2.mesh);
+    buildingCount = lod2.count;
+    setProgress(0.94);
+  } else {
+    // Simple-3D: hulls detailed by building:part are replaced by their parts
+    const renderBuildings = data.buildings.filter((b) => !b.hasParts).concat(data.parts);
+    buildingCount = renderBuildings.length;
+    setStatus(`Errichte ${renderBuildings.length.toLocaleString('de-DE')} Gebäude …`);
+    const buildingMesh = await buildBuildings(renderBuildings, (f) => setProgress(0.72 + f * 0.22));
+    scene.add(buildingMesh);
+  }
 
   // ---------- lights & atmosphere ----------
   const glowTex = makeGlowTexture();
@@ -260,7 +272,7 @@ async function boot() {
   });
 
   $('hud-stats').textContent =
-    `${renderBuildings.length.toLocaleString('de-DE')} Gebäude · ` +
+    `${buildingCount.toLocaleString('de-DE')} Gebäude${lod2 ? ' (amtl. LoD2)' : ''} · ` +
     `${data.roads.length.toLocaleString('de-DE')} Wege · OpenStreetMap`;
 
   window.addEventListener('resize', () => {
@@ -304,6 +316,7 @@ async function boot() {
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1);
     rig.update(dt);
+    atmosphere.track(rig.orbit.target);
     traffic.update(dt);
     trams.update(dt);
     waterUniforms.u_time.value += dt;

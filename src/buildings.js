@@ -44,6 +44,18 @@ function colorFromTag(value) {
   return null;
 }
 
+// Pure CSS colors ("red", "blue") look like toy bricks — pull mapped colours
+// toward architectural saturation/lightness without losing the hue.
+function tameColor(c) {
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  return c.setHSL(
+    hsl.h,
+    Math.min(hsl.s, 0.32),
+    THREE.MathUtils.clamp(hsl.l, 0.28, 0.62)
+  );
+}
+
 // Per-building floodlight factor from landmark proximity
 function floodFactor(centroid) {
   let f = 0;
@@ -377,7 +389,9 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
     const roofYAt = roof ? (p) => eave + roofH * roof.t(p) : () => top;
 
     const taggedWall = colorFromTag(b.wallColor);
+    if (taggedWall) tameColor(taggedWall);
     const taggedRoof = colorFromTag(b.roofColor);
+    if (taggedRoof) tameColor(taggedRoof);
     const wallC = (taggedWall ?? (stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)]))
       .clone()
       .multiplyScalar(taggedWall ? 0.95 + hash01(b.id + 7) * 0.1 : 0.85 + hash01(b.id + 7) * 0.3);

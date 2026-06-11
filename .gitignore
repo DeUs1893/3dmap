@@ -2,3 +2,6 @@ node_modules/
 dist/
 .DS_Store
 *.log
+# locally baked official LoD2 building models (npm run bake-lod2)
+public/data/lod2.bin
+public/data/lod2.json

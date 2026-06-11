@@ -62,6 +62,22 @@ test/smoke.mjs  Headless-Tests (Gelände-Plausibilität, Geometrie)
 npm run bake-terrain   # lädt die Terrarium-Tiles neu und schreibt public/data/
 ```
 
+### Amtliche LoD2-Gebäudemodelle (optional, empfohlen!)
+
+Die Bayerische Vermessungsverwaltung stellt vermessene 3D-Gebäudemodelle mit
+echten Dachformen als Open Data bereit (CC BY 4.0). Einmal lokal backen:
+
+```bash
+npm run bake-lod2
+```
+
+Das Skript lädt die CityGML-Kacheln für den Kartenausschnitt und schreibt
+`public/data/lod2.bin` — die App nutzt sie beim nächsten Start automatisch
+statt der extrudierten OSM-Gebäude (Fenster, Floodlight etc. bleiben aktiv).
+Falls der automatische Download scheitert: Kacheln von
+https://geodaten.bayern.de/opengeodata/OpenDataDetail.html?pn=lod2
+manuell laden und `node tools/bake-lod2.mjs --from <ordner>` ausführen.
+
 Den OSM-Cache leert man im Browser (DevTools → IndexedDB → `wuerzburg3d`) oder durch
 Erhöhen von `OSM_CACHE_KEY` in `src/config.js`.
 

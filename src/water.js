@@ -79,7 +79,7 @@ export function prepareWater(waterPolys, riverLines = []) {
       minZ = Math.min(minZ, v.y - s.width); maxZ = Math.max(maxZ, v.y + s.width);
     }
   }
-  const res = 3; // meters per cell
+  const res = 2; // meters per cell
   const gw = Math.max(2, Math.ceil((maxX - minX) / res));
   const gh = Math.max(2, Math.ceil((maxZ - minZ) / res));
   const canvas = document.createElement('canvas');
@@ -145,9 +145,14 @@ export function prepareWater(waterPolys, riverLines = []) {
       }
       return i;
     };
+    // one cell dilation tucks the stair-stepped edge under the rising bank
+    const wet = (cx, cy) =>
+      cx >= 0 && cy >= 0 && cx < gw && cy < gh && maskData[(cy * gw + cx) * 4] > 127;
     for (let cy = 0; cy < gh; cy++) {
       for (let cx = 0; cx < gw; cx++) {
-        if (maskData[(cy * gw + cx) * 4] <= 127) continue;
+        if (!wet(cx, cy) && !wet(cx - 1, cy) && !wet(cx + 1, cy) && !wet(cx, cy - 1) && !wet(cx, cy + 1)) {
+          continue;
+        }
         const a = corner(cx, cy);
         const b = corner(cx + 1, cy);
         const c = corner(cx + 1, cy + 1);

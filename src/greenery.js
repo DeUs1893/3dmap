@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hash01, getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
 import {
@@ -88,19 +89,33 @@ export function buildGreenery(greens) {
 
 function buildTrees(spots) {
   if (!spots.length) return null;
-  const crownGeo = new THREE.IcosahedronGeometry(1, 1);
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
-  const mesh = new THREE.InstancedMesh(crownGeo, mat, spots.length);
+  // crown + trunk merged into one instanced geometry; the trunk is colored via
+  // vertex colors so a single material draw still works
+  const crownGeo = new THREE.IcosahedronGeometry(1, 1).translate(0, 1.05, 0);
+  const trunkGeo = new THREE.CylinderGeometry(0.09, 0.13, 1.0, 5).translate(0, 0.3, 0);
+  const paint = (geo, color) => {
+    const c = new THREE.Color(color);
+    const arr = new Float32Array(geo.attributes.position.count * 3);
+    for (let i = 0; i < geo.attributes.position.count; i++) {
+      arr[i * 3] = c.r;
+      arr[i * 3 + 1] = c.g;
+      arr[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    return geo;
+  };
+  const geo = mergeGeometries([paint(trunkGeo, 0x6b5136), paint(crownGeo, 0xffffff)]);
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: true });
+  const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  const palette = [0x2a4423, 0x33502a, 0x223a1e, 0x3a5530];
+  const palette = [0x37502e, 0x405c36, 0x2e4527, 0x49603a];
 
   for (let i = 0; i < spots.length; i++) {
     const s = spots[i];
-    const r = s.small ? 0.9 + Math.random() * 0.5 : 2.0 + Math.random() * 1.8;
-    const y = groundY(s.x, s.z) + r * 0.9;
-    dummy.position.set(s.x, y, s.z);
-    dummy.scale.set(r, r * (1.05 + Math.random() * 0.35), r);
+    const r = s.small ? 0.8 + Math.random() * 0.4 : 1.6 + Math.random() * 1.4;
+    dummy.position.set(s.x, groundY(s.x, s.z), s.z);
+    dummy.scale.set(r, r * (1.1 + Math.random() * 0.4), r);
     dummy.rotation.y = Math.random() * Math.PI;
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);

@@ -263,4 +263,67 @@ for (const p of pieces[0]) {
 }
 console.log('ok clipping ring + path');
 
+// --- LoD2 pipeline end-to-end (synthetic CityGML → bake → loader) ---
+{
+  const { execSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync: wf } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(`${tmpdir()}/lod2-`);
+  const e = 566900, n0 = 5516560, g = 172, eave = 180, ridge = 184;
+  const pl = (pts) => pts.map((p) => p.join(' ')).join(' ');
+  const surf = (kind, rings) =>
+    rings
+      .map(
+        (r) =>
+          `<bldg:boundedBy><bldg:${kind}><gml:Polygon><gml:exterior><gml:LinearRing>` +
+          `<gml:posList srsDimension="3">${pl(r)}</gml:posList>` +
+          `</gml:LinearRing></gml:exterior></gml:Polygon></bldg:${kind}></bldg:boundedBy>`
+      )
+      .join('\n');
+  const gml = `<?xml version="1.0"?><core:CityModel xmlns:bldg="y" xmlns:gml="z">
+<core:cityObjectMember><bldg:Building gml:id="T1">
+${surf('WallSurface', [
+  [[e, n0, g], [e + 10, n0, g], [e + 10, n0, eave], [e, n0, eave], [e, n0, g]],
+  [[e, n0, g], [e, n0 + 6, g], [e, n0 + 3, ridge], [e, n0, eave], [e, n0, g]],
+])}
+${surf('RoofSurface', [
+  [[e, n0, eave], [e + 10, n0, eave], [e + 10, n0 + 3, ridge], [e, n0 + 3, ridge], [e, n0, eave]],
+])}
+${surf('GroundSurface', [
+  [[e, n0, g], [e, n0 + 6, g], [e + 10, n0 + 6, g], [e + 10, n0, g], [e, n0, g]],
+])}
+</bldg:Building></core:cityObjectMember></core:CityModel>`;
+  wf(`${dir}/t.gml`, gml);
+  execSync(`node tools/bake-lod2.mjs --from ${dir} --out ${dir}/out`, { stdio: 'pipe' });
+
+  const innerFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('data/lod2')) {
+      const buf = readFileSync(`${dir}/out/lod2.${u.endsWith('.json') ? 'json' : 'bin'}`);
+      return {
+        ok: true,
+        json: async () => JSON.parse(buf.toString()),
+        arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      };
+    }
+    return innerFetch(url);
+  };
+  const { loadLOD2 } = await import('../src/lod2.js');
+  const lod2 = await loadLOD2('');
+  globalThis.fetch = innerFetch;
+  assert(lod2, 'LoD2 loader returned null');
+  assert.equal(lod2.count, 1);
+  const lp = lod2.mesh.geometry.attributes.position;
+  let top = -Infinity;
+  for (let i = 0; i < lp.count; i++) {
+    assert(Number.isFinite(lp.getX(i)) && Number.isFinite(lp.getY(i)), 'NaN in LoD2 geometry');
+    top = Math.max(top, lp.getY(i));
+  }
+  // gabled fixture: ridge 12 m above its base, building re-grounded onto terrain
+  const span = top - Math.min(...Array.from({ length: lp.count }, (_, i) => lp.getY(i)));
+  assert(span > 10 && span < 14, `LoD2 vertical span odd: ${span.toFixed(1)} m`);
+  console.log(`ok LoD2 pipeline: bake + loader, ${lp.count} verts, ridge span ${span.toFixed(1)} m`);
+}
+
 console.log('\nAll smoke tests passed.');
