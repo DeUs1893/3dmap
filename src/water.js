@@ -229,12 +229,18 @@ export function prepareWater(waterPolys, riverLines = []) {
           float horizonness = 1.0 - max(reflDir.y, 0.0);
           vec3 skyRefl = mix(u_skyZenith, u_skyHorizon, pow(horizonness, 2.2));
 
-          // planar reflection of the actual scene, distorted by the waves
+          // planar reflection of the actual scene, wave-distorted and softly
+          // blurred so the rasterized bank edge doesn't mirror as hard jaggies
           vec3 reflection = skyRefl;
           if (u_reflStrength > 0.01) {
-            vec2 reflUv = vReflCoord.xy / vReflCoord.w + normal.xz * 0.06;
-            vec3 tex = texture2D(u_reflMap, clamp(reflUv, 0.001, 0.999)).rgb;
-            reflection = mix(skyRefl, tex, u_reflStrength * 0.85);
+            vec2 reflUv = vReflCoord.xy / vReflCoord.w + normal.xz * 0.13;
+            vec2 px = vec2(2.5) / vec2(1024.0);
+            vec3 tex = vec3(0.0);
+            tex += texture2D(u_reflMap, clamp(reflUv + vec2(px.x, 0.0), 0.001, 0.999)).rgb;
+            tex += texture2D(u_reflMap, clamp(reflUv - vec2(px.x, 0.0), 0.001, 0.999)).rgb;
+            tex += texture2D(u_reflMap, clamp(reflUv + vec2(0.0, px.y), 0.001, 0.999)).rgb;
+            tex += texture2D(u_reflMap, clamp(reflUv - vec2(0.0, px.y), 0.001, 0.999)).rgb;
+            reflection = mix(skyRefl, tex * 0.25, u_reflStrength * 0.85);
           }
 
           vec3 color = mix(u_deepColor, reflection, fresnel);

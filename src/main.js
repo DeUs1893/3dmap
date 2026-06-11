@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
@@ -66,6 +67,31 @@ async function boot() {
     0.85
   );
   composer.addPass(bloom);
+  // cinematic grade: gentle saturation, warm shadow lift, vignette
+  const grade = new ShaderPass({
+    uniforms: { tDiffuse: { value: null } },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D tDiffuse;
+      varying vec2 vUv;
+      void main() {
+        vec4 color = texture2D(tDiffuse, vUv);
+        float l = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+        color.rgb = mix(vec3(l), color.rgb, 1.12);
+        color.rgb += vec3(0.014, 0.007, -0.004) * (1.0 - smoothstep(0.0, 0.35, l));
+        float d = distance(vUv, vec2(0.5));
+        color.rgb *= 1.0 - 0.3 * smoothstep(0.48, 0.86, d);
+        gl_FragColor = color;
+      }
+    `,
+  });
+  composer.addPass(grade);
   composer.addPass(new OutputPass());
 
   // ---------- data ----------
@@ -333,6 +359,7 @@ async function boot() {
     const dt = Math.min(clock.getDelta(), 0.1);
     rig.update(dt);
     atmosphere.track(rig.orbit.target);
+    atmosphere.updateEnvironment();
     traffic.update(dt);
     trams.update(dt);
     waterUniforms.u_time.value += dt;

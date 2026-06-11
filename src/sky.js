@@ -9,18 +9,18 @@ const KEYS = [
   {
     t: 0,
     lightAz: 205, lightEl: 46, lightColor: 0xfff0d4, lightIntensity: 3.0,
-    hemiSky: 0xa8c8f0, hemiGround: 0x7d7660, hemiIntensity: 0.6,
+    hemiSky: 0xc2d3e4, hemiGround: 0x97836a, hemiIntensity: 0.75,
     zenith: 0x2a5ca8, horizon: 0xb9d2e8, fog: 0xa9c2d8, fogDensity: 0.00006,
     windowGlow: 0.0, litRatio: 0.1, floodGlow: 0.0, lampOpacity: 0.0,
-    starAlpha: 0.0, exposure: 0.98, sunGlow: 0.6, clouds: 0.7,
+    starAlpha: 0.0, exposure: 0.98, sunGlow: 0.6, clouds: 0.7, envIntensity: 0.55,
   },
   {
     t: 0.5,
     lightAz: 283, lightEl: 7, lightColor: 0xff9248, lightIntensity: 1.35,
-    hemiSky: 0x4a5a8a, hemiGround: 0x3a342c, hemiIntensity: 0.5,
+    hemiSky: 0x55628e, hemiGround: 0x4a3c2c, hemiIntensity: 0.55,
     zenith: 0x1c2b4d, horizon: 0xff9d5c, fog: 0x3a3a55, fogDensity: 0.00012,
     windowGlow: 1.05, litRatio: 0.45, floodGlow: 0.3, lampOpacity: 0.85,
-    starAlpha: 0.25, exposure: 1.05, sunGlow: 1.0, clouds: 0.3,
+    starAlpha: 0.25, exposure: 1.05, sunGlow: 1.0, clouds: 0.3, envIntensity: 0.6,
   },
   {
     t: 1,
@@ -28,7 +28,7 @@ const KEYS = [
     hemiSky: 0x222e52, hemiGround: 0x191713, hemiIntensity: 0.42,
     zenith: 0x05080f, horizon: 0x131c33, fog: 0x0a0e1a, fogDensity: 0.00013,
     windowGlow: 1.7, litRatio: 0.55, floodGlow: 0.55, lampOpacity: 1.0,
-    starAlpha: 1.0, exposure: 1.12, sunGlow: 0.35, clouds: 0.08,
+    starAlpha: 1.0, exposure: 1.12, sunGlow: 0.35, clouds: 0.08, envIntensity: 0.4,
   },
 ];
 
@@ -171,8 +171,29 @@ export class Atmosphere {
     this.skyMesh.frustumCulled = false;
     scene.add(this.skyMesh);
 
+    // image-based lighting: a PMREM of the sky feeds scene.environment so
+    // shaded facades pick up sky/horizon bounce instead of flat gray
+    this.envScene = new THREE.Scene();
+    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 24, 12), skyMat));
+    this.pmrem = new THREE.PMREMGenerator(renderer);
+    this.envRT = null;
+    this.envDirty = true;
+    this.lastEnvUpdate = 0;
+
     this.lampMaterials = [];
     this.setTime(0.5);
+  }
+
+  /** Regenerates the sky environment map (throttled; call from the render loop). */
+  updateEnvironment() {
+    const now = performance.now();
+    if (!this.envDirty || now - this.lastEnvUpdate < 250) return;
+    this.envDirty = false;
+    this.lastEnvUpdate = now;
+    const old = this.envRT;
+    this.envRT = this.pmrem.fromScene(this.envScene, 0.035);
+    this.scene.environment = this.envRT.texture;
+    old?.dispose();
   }
 
   registerLampMaterial(mat, baseOpacity = 1) {
@@ -249,6 +270,8 @@ export class Atmosphere {
     this.skyUniforms.u_sunGlow.value = v.sunGlow;
     this.skyUniforms.u_starAlpha.value = v.starAlpha;
     this.skyUniforms.u_clouds.value = v.clouds;
+    this.scene.environmentIntensity = v.envIntensity;
+    this.envDirty = true;
 
     buildingUniforms.u_windowGlow.value = v.windowGlow;
     buildingUniforms.u_litRatio.value = v.litRatio;
