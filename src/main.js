@@ -26,9 +26,14 @@ const setStatus = (msg) => ($('status').textContent = msg);
 const setProgress = (f) => ($('progress').style.width = `${Math.round(f * 100)}%`);
 
 async function boot() {
+  // phones get a lite pipeline: no GTAO/reflections, smaller shadow map
+  const isMobile =
+    /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && Math.min(window.innerWidth, window.innerHeight) < 900);
+
   // ---------- renderer / scene ----------
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -56,10 +61,13 @@ async function boot() {
     })
   );
   composer.addPass(new RenderPass(scene, camera));
-  const gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-  gtao.output = GTAOPass.OUTPUT.Default;
-  gtao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.5, thickness: 1.5, scale: 0.9 });
-  composer.addPass(gtao);
+  let gtao = null;
+  if (!isMobile) {
+    gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+    gtao.output = GTAOPass.OUTPUT.Default;
+    gtao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.5, thickness: 1.5, scale: 0.9 });
+    composer.addPass(gtao);
+  }
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
     0.42,
@@ -193,6 +201,10 @@ async function boot() {
   scene.add(trams.points);
 
   const atmosphere = new Atmosphere(scene, renderer);
+  if (isMobile) {
+    atmosphere.sun.shadow.mapSize.set(2048, 2048);
+    waterUniforms.u_reflStrength.value = 0; // planar reflection pass off by default
+  }
   atmosphere.registerLampMaterial(lamps.material, 0.9);
   atmosphere.registerLampMaterial(traffic.points.material, 1);
   atmosphere.registerLampMaterial(trams.points.material, 1);
@@ -257,6 +269,7 @@ async function boot() {
   applyClock(duskMinutes);
 
   const reflToggle = $('refl-toggle');
+  reflToggle.classList.toggle('on', waterUniforms.u_reflStrength.value > 0.5);
   reflToggle.addEventListener('click', () => {
     const on = waterUniforms.u_reflStrength.value < 0.5;
     waterUniforms.u_reflStrength.value = on ? 1 : 0;
@@ -319,7 +332,7 @@ async function boot() {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
-    gtao.setSize(w, h);
+    gtao?.setSize(w, h);
     bloom.setSize(w, h);
     grade.uniforms.uTexel.value.set(1 / w, 1 / h);
     labelRenderer.setSize(w, h);
