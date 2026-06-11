@@ -103,23 +103,31 @@ function isClosed(ring) {
   return Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
 }
 
-// Joins open way segments of a multipolygon into closed rings
+// Joins way segments of a multipolygon into closed rings.
+// Extends chains at both ends, snap-closes small data gaps and force-closes
+// long leftover chains — incomplete data should degrade, not vanish.
 function stitchRings(segments) {
   const rings = [];
   const open = segments.filter((s) => s.length >= 2).map((s) => s.slice());
+  const near = (p, q, tol) => Math.abs(p[0] - q[0]) < tol && Math.abs(p[1] - q[1]) < tol;
+  const TOL = 1e-7;
   while (open.length) {
     let ring = open.shift();
     let extended = true;
     while (!isClosed(ring) && extended) {
       extended = false;
+      const tail = ring[ring.length - 1];
+      const head = ring[0];
       for (let i = 0; i < open.length; i++) {
         const seg = open[i];
-        const tail = ring[ring.length - 1];
-        const near = (p, q) => Math.abs(p[0] - q[0]) < 1e-7 && Math.abs(p[1] - q[1]) < 1e-7;
-        if (near(seg[0], tail)) {
+        if (near(seg[0], tail, TOL)) {
           ring = ring.concat(seg.slice(1));
-        } else if (near(seg[seg.length - 1], tail)) {
+        } else if (near(seg[seg.length - 1], tail, TOL)) {
           ring = ring.concat(seg.slice(0, -1).reverse());
+        } else if (near(seg[seg.length - 1], head, TOL)) {
+          ring = seg.slice(0, -1).concat(ring);
+        } else if (near(seg[0], head, TOL)) {
+          ring = seg.slice(1).reverse().concat(ring);
         } else {
           continue;
         }
@@ -128,7 +136,16 @@ function stitchRings(segments) {
         break;
       }
     }
-    if (isClosed(ring) && ring.length >= 4) rings.push(ring);
+    if (ring.length < 4) continue;
+    if (!isClosed(ring) && near(ring[0], ring[ring.length - 1], 3e-5)) {
+      ring.push([...ring[0]]); // snap-close gaps up to ~3 m
+    }
+    if (isClosed(ring)) {
+      rings.push(ring);
+    } else if (ring.length >= 8) {
+      ring.push([...ring[0]]); // force-close: better a rough polygon than nothing
+      rings.push(ring);
+    }
   }
   return rings;
 }
@@ -285,7 +302,9 @@ export function parseOSM(json) {
     }
   }
 
-  // Simple-3D buildings: a hull that is detailed by parts is not rendered itself
+  // Simple-3D buildings: a hull that is detailed by parts is not rendered itself.
+  // Safety net: only hide the hull when its parts actually cover a substantial
+  // share of its footprint — if parts are broken/missing, the hull stays visible.
   if (parts.length) {
     const inRing = (lon, lat, ring) => {
       let inside = false;
@@ -298,14 +317,30 @@ export function parseOSM(json) {
       }
       return inside;
     };
-    const centroids = parts.map((p) => {
+    // area in m² (equirectangular approximation is fine at city scale)
+    const ringAreaM2 = (ring) => {
+      const mLat = 111194;
+      const mLon = 111319.49 * Math.cos((ring[0][1] * Math.PI) / 180);
+      let a = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const [x1, y1] = ring[i];
+        const [x2, y2] = ring[(i + 1) % ring.length];
+        a += x1 * mLon * (y2 * mLat) - x2 * mLon * (y1 * mLat);
+      }
+      return Math.abs(a / 2);
+    };
+    const partInfo = parts.map((p) => {
       let lon = 0;
       let lat = 0;
       for (const [x, y] of p.outer) {
         lon += x;
         lat += y;
       }
-      return [lon / p.outer.length, lat / p.outer.length];
+      return {
+        lon: lon / p.outer.length,
+        lat: lat / p.outer.length,
+        area: ringAreaM2(p.outer),
+      };
     });
     for (const b of buildings) {
       let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
@@ -313,13 +348,12 @@ export function parseOSM(json) {
         minLon = Math.min(minLon, x); maxLon = Math.max(maxLon, x);
         minLat = Math.min(minLat, y); maxLat = Math.max(maxLat, y);
       }
-      for (const [clon, clat] of centroids) {
-        if (clon < minLon || clon > maxLon || clat < minLat || clat > maxLat) continue;
-        if (inRing(clon, clat, b.outer)) {
-          b.hasParts = true;
-          break;
-        }
+      let covered = 0;
+      for (const pi of partInfo) {
+        if (pi.lon < minLon || pi.lon > maxLon || pi.lat < minLat || pi.lat > maxLat) continue;
+        if (inRing(pi.lon, pi.lat, b.outer)) covered += pi.area;
       }
+      b.hasParts = covered >= ringAreaM2(b.outer) * 0.25;
     }
   }
 

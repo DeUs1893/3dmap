@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, triangulatePolygon, clipRingToRect } from './polyutil.js';
+import { projectRing, clipRingToRect } from './polyutil.js';
 
 export const waterUniforms = {
   u_time: { value: 0 },
@@ -9,7 +9,7 @@ export const waterUniforms = {
   u_sunColor: { value: new THREE.Color(0xffb070) },
   u_skyZenith: { value: new THREE.Color(0x1c2b4d) },
   u_skyHorizon: { value: new THREE.Color(0xff9d5c) },
-  u_deepColor: { value: new THREE.Color(0x0a141c) },
+  u_deepColor: { value: new THREE.Color(0x121d18) }, // muddy river green
   u_reflMap: { value: null },
   u_textureMatrix: { value: new THREE.Matrix4() },
   u_reflStrength: { value: 1 },
@@ -92,15 +92,31 @@ export function prepareWater(waterPolys) {
     return maskData[(cy * gw + cx) * 4] > 127 ? level : null;
   };
 
+  // The surface mesh is generated from the raster mask instead of triangulating
+  // the (often fragmented) OSM multipolygons — guarantees full river coverage.
   const build = () => {
     const pos = [];
     const idx = [];
-    for (const p of polys) {
-      const tri = triangulatePolygon(p.outer, p.holes);
-      if (!tri) continue;
-      const offset = pos.length / 3;
-      for (const v of tri.points) pos.push(v.x, level, v.y);
-      for (const [a, b, c] of tri.triangles) idx.push(offset + a, offset + b, offset + c);
+    const cornerIndex = new Map();
+    const corner = (cx, cy) => {
+      const key = cy * (gw + 1) + cx;
+      let i = cornerIndex.get(key);
+      if (i === undefined) {
+        i = pos.length / 3;
+        pos.push(minX + cx * res, level, minZ + cy * res);
+        cornerIndex.set(key, i);
+      }
+      return i;
+    };
+    for (let cy = 0; cy < gh; cy++) {
+      for (let cx = 0; cx < gw; cx++) {
+        if (maskData[(cy * gw + cx) * 4] <= 127) continue;
+        const a = corner(cx, cy);
+        const b = corner(cx + 1, cy);
+        const c = corner(cx + 1, cy + 1);
+        const d = corner(cx, cy + 1);
+        idx.push(a, c, b, a, d, c); // upward-facing in (x, z)
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

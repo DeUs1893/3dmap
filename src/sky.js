@@ -12,7 +12,7 @@ const KEYS = [
     hemiSky: 0xa8c8f0, hemiGround: 0x7d7660, hemiIntensity: 0.6,
     zenith: 0x2a5ca8, horizon: 0xb9d2e8, fog: 0xa9c2d8, fogDensity: 0.00006,
     windowGlow: 0.0, litRatio: 0.1, floodGlow: 0.0, lampOpacity: 0.0,
-    starAlpha: 0.0, exposure: 1.0, sunGlow: 0.6,
+    starAlpha: 0.0, exposure: 0.98, sunGlow: 0.6, clouds: 0.7,
   },
   {
     t: 0.5,
@@ -20,7 +20,7 @@ const KEYS = [
     hemiSky: 0x4a5a8a, hemiGround: 0x3a342c, hemiIntensity: 0.5,
     zenith: 0x1c2b4d, horizon: 0xff9d5c, fog: 0x3a3a55, fogDensity: 0.00012,
     windowGlow: 1.05, litRatio: 0.45, floodGlow: 0.3, lampOpacity: 0.85,
-    starAlpha: 0.25, exposure: 1.05, sunGlow: 1.0,
+    starAlpha: 0.25, exposure: 1.05, sunGlow: 1.0, clouds: 0.3,
   },
   {
     t: 1,
@@ -28,7 +28,7 @@ const KEYS = [
     hemiSky: 0x222e52, hemiGround: 0x191713, hemiIntensity: 0.42,
     zenith: 0x05080f, horizon: 0x131c33, fog: 0x0a0e1a, fogDensity: 0.00013,
     windowGlow: 1.7, litRatio: 0.55, floodGlow: 0.55, lampOpacity: 1.0,
-    starAlpha: 1.0, exposure: 1.12, sunGlow: 0.35,
+    starAlpha: 1.0, exposure: 1.12, sunGlow: 0.35, clouds: 0.08,
   },
 ];
 
@@ -79,6 +79,7 @@ export class Atmosphere {
       u_sunColor: { value: new THREE.Color(0xff9248) },
       u_sunGlow: { value: 1 },
       u_starAlpha: { value: 0.3 },
+      u_clouds: { value: 0.3 },
     };
     const skyGeo = new THREE.SphereGeometry(14000, 32, 16);
     const skyMat = new THREE.ShaderMaterial({
@@ -102,10 +103,31 @@ export class Atmosphere {
         uniform vec3 u_sunColor;
         uniform float u_sunGlow;
         uniform float u_starAlpha;
+        uniform float u_clouds;
         varying vec3 vDir;
 
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+            mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+            u.y
+          );
+        }
+        float fbm(vec2 p) {
+          float s = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 4; i++) {
+            s += a * vnoise(p);
+            p = p * 2.13 + 19.7;
+            a *= 0.5;
+          }
+          return s;
         }
         void main() {
           vec3 dir = normalize(vDir);
@@ -114,6 +136,15 @@ export class Atmosphere {
           // blend toward fog near and below the horizon so terrain silhouettes dissolve
           col = mix(u_fog, col, smoothstep(0.0, 0.18, dir.y));
           if (dir.y < 0.0) col = u_fog;
+
+          // soft cloud layer, fading toward the horizon and at night
+          if (dir.y > 0.02 && u_clouds > 0.01) {
+            vec2 cuv = dir.xz / (dir.y + 0.14);
+            float c = fbm(cuv * 0.5 + vec2(13.7, 7.1));
+            float cl = smoothstep(0.5, 0.8, c) * u_clouds * smoothstep(0.02, 0.22, dir.y);
+            vec3 cloudCol = mix(u_horizon, vec3(1.0), 0.55) + u_sunColor * 0.12;
+            col = mix(col, cloudCol, cl * 0.8);
+          }
 
           float sunDot = max(dot(dir, normalize(u_sunDir)), 0.0);
           col += u_sunColor * pow(sunDot, 6000.0) * 8.0 * u_sunGlow;  // disc
@@ -210,6 +241,7 @@ export class Atmosphere {
     this.skyUniforms.u_sunColor.value.copy(v.lightColor);
     this.skyUniforms.u_sunGlow.value = v.sunGlow;
     this.skyUniforms.u_starAlpha.value = v.starAlpha;
+    this.skyUniforms.u_clouds.value = v.clouds;
 
     buildingUniforms.u_windowGlow.value = v.windowGlow;
     buildingUniforms.u_litRatio.value = v.litRatio;

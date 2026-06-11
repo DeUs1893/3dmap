@@ -142,6 +142,36 @@ for (let i = 0; i < pPos.count; i++) {
 }
 console.log(`ok geometry roofs + parts: ${pPos.count} verts`);
 
+// --- multipolygon relation stitching (Residenz-style split outer ways) ---
+const relSynthetic = {
+  elements: [
+    {
+      type: 'relation', id: 20, tags: { building: 'palace', name: 'Residenz' },
+      members: [
+        {
+          type: 'way', role: 'outer',
+          geometry: [
+            { lon: 9.938, lat: 49.792 }, { lon: 9.94, lat: 49.792 }, { lon: 9.94, lat: 49.7928 },
+          ],
+        },
+        {
+          // reversed order + connects at the head of the first segment
+          type: 'way', role: 'outer',
+          geometry: [
+            { lon: 9.938, lat: 49.792 }, { lon: 9.938, lat: 49.7928 }, { lon: 9.94, lat: 49.7928 },
+          ],
+        },
+      ],
+    },
+  ],
+};
+const relParsed = parseOSM(relSynthetic);
+assert.equal(relParsed.buildings.length, 1, 'split relation outer not stitched');
+assert(relParsed.buildings[0].outer.length >= 4, 'stitched ring too small');
+const relMesh = await buildBuildings(relParsed.buildings);
+assert(relMesh.geometry.attributes.position.count > 12, 'relation building has no geometry');
+console.log('ok relation stitching (split outer ways → 1 building)');
+
 // --- solar position ---
 const { sunPosition } = await import('../src/sun.js');
 const noon = sunPosition(new Date(Date.UTC(2026, 5, 11, 11, 15)), 49.79, 9.93);

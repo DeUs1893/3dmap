@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { groundY } from './terrain.js';
 
-const MIN_CLEARANCE = 2.5;
+const MIN_CLEARANCE = 1.7; // eye height — allows first-person views
 
 function easeInOutQuint(t) {
   return t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2;
@@ -19,9 +19,9 @@ export class CameraRig {
     this.orbit = new OrbitControls(camera, domElement);
     this.orbit.enableDamping = true;
     this.orbit.dampingFactor = 0.07;
-    this.orbit.minDistance = 25;
+    this.orbit.minDistance = 5;
     this.orbit.maxDistance = 7000;
-    this.orbit.maxPolarAngle = THREE.MathUtils.degToRad(86);
+    this.orbit.maxPolarAngle = THREE.MathUtils.degToRad(88);
     this.orbit.screenSpacePanning = false;
 
     // fly mode state

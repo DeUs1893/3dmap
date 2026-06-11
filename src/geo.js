@@ -34,6 +34,21 @@ export function getMapRect(margin = 0) {
   };
 }
 
+// Smooth value noise in [0,1) over 2D coordinates (1 unit = 1 noise cell)
+export function noise2D(x, y) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const fx = x - xi;
+  const fy = y - yi;
+  const h = (i, j) => hash01(Math.imul(i, 374761393) + Math.imul(j, 668265263));
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  return (
+    (h(xi, yi) * (1 - sx) + h(xi + 1, yi) * sx) * (1 - sy) +
+    (h(xi, yi + 1) * (1 - sx) + h(xi + 1, yi + 1) * sx) * sy
+  );
+}
+
 // Deterministic pseudo-random in [0,1) from an integer seed
 export function hash01(seed) {
   let h = seed | 0;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
@@ -53,6 +54,10 @@ async function boot() {
     })
   );
   composer.addPass(new RenderPass(scene, camera));
+  const gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+  gtao.output = GTAOPass.OUTPUT.Default;
+  gtao.updateGtaoMaterial({ radius: 6, distanceExponent: 1.5, thickness: 4, scale: 1.2 });
+  composer.addPass(gtao);
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
     0.42,
@@ -95,8 +100,9 @@ async function boot() {
   await new Promise((r) => requestAnimationFrame(r));
 
   setStatus('Asphaltiere Straßen …');
-  const { mesh: roadMesh, trafficPaths, tramPaths } = buildRoads(data.roads, data.rails);
+  const { mesh: roadMesh, trafficPaths, tramPaths, statues } = buildRoads(data.roads, data.rails);
   scene.add(roadMesh);
+  if (statues) scene.add(statues);
   setProgress(0.66);
   await new Promise((r) => requestAnimationFrame(r));
 
@@ -260,6 +266,7 @@ async function boot() {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
+    gtao.setSize(w, h);
     bloom.setSize(w, h);
     labelRenderer.setSize(w, h);
   });
