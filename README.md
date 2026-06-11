@@ -78,6 +78,19 @@ Falls der automatische Download scheitert: Kacheln von
 https://geodaten.bayern.de/opengeodata/OpenDataDetail.html?pn=lod2
 manuell laden und `node tools/bake-lod2.mjs --from <ordner>` ausführen.
 
+### Amtliches 1-m-Gelände (DGM1, optional)
+
+Passend zu den LoD2-Gebäuden gibt es das Laserscan-Geländemodell:
+
+```bash
+npm run bake-dgm1
+```
+
+Schreibt `public/data/terrain-dgm1.bin` (2-m-Raster aus den 1-m-GeoTIFFs);
+die App bevorzugt es automatisch — Ufer, Hänge und Festungsgraben werden
+vermessungsgenau und passen exakt zu den LoD2-Gebäuden. Manueller Fallback
+analog zu LoD2: `node tools/bake-dgm1.mjs --from <ordner>` mit .tif-Kacheln.
+
 Den OSM-Cache leert man im Browser (DevTools → IndexedDB → `wuerzburg3d`) oder durch
 Erhöhen von `OSM_CACHE_KEY` in `src/config.js`.
 

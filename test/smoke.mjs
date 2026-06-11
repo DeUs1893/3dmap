@@ -344,4 +344,68 @@ ${surf('GroundSurface', [
   console.log(`ok LoD2 pipeline: bake + loader, ${lp.count} verts, ridge span ${span.toFixed(1)} m`);
 }
 
+// --- DGM1 pipeline end-to-end (synthetic GeoTIFF → bake → utm32 terrain sampling) ---
+// runs last: it swaps the globally loaded terrain to the high-res variant
+{
+  const { execSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync: wf } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { writeArrayBuffer } = await import('geotiff');
+  const { lonLatToUtm } = await import('../src/utm.js');
+  const { MAP_BBOX } = await import('../src/config.js');
+
+  // one synthetic tile covering the whole extent at 4 m, constant slope field
+  const m = 800;
+  const c1 = lonLatToUtm(MAP_BBOX.west, MAP_BBOX.south);
+  const c2 = lonLatToUtm(MAP_BBOX.east, MAP_BBOX.north);
+  const minE = Math.floor(Math.min(c1.easting, c2.easting)) - m;
+  const maxE = Math.ceil(Math.max(c1.easting, c2.easting)) + m;
+  const minN = Math.floor(Math.min(c1.northing, c2.northing)) - m;
+  const maxN = Math.ceil(Math.max(c1.northing, c2.northing)) + m;
+  const scale = 4;
+  const tw = Math.ceil((maxE - minE) / scale);
+  const th = Math.ceil((maxN - minN) / scale);
+  const eleAt = (E, N) => 180 + (E - minE) * 0.002 + (N - minN) * 0.001; // stays < 255 (8-bit fixture)
+  const data = new Array(tw * th);
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      data[y * tw + x] = Math.round(eleAt(minE + (x + 0.5) * scale, maxN - (y + 0.5) * scale));
+    }
+  }
+  const tiffBuf = await writeArrayBuffer(data, {
+    height: th,
+    width: tw,
+    ModelPixelScale: [scale, scale, 0],
+    ModelTiepoint: [0, 0, 0, minE, maxN, 0],
+    ProjectedCSTypeGeoKey: 25832, // without a CRS geokey the writer overrides the tiepoint
+  });
+  const dir = mkdtempSync(`${tmpdir()}/dgm1-`);
+  wf(`${dir}/tile.tif`, Buffer.from(tiffBuf));
+  execSync(`node tools/bake-dgm1.mjs --from ${dir} --out ${dir}/out`, { stdio: 'pipe' });
+
+  const innerFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('terrain-dgm1')) {
+      const buf = readFileSync(`${dir}/out/terrain-dgm1.${u.endsWith('.json') ? 'json' : 'bin'}`);
+      return {
+        ok: true,
+        json: async () => JSON.parse(buf.toString()),
+        arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      };
+    }
+    return { ok: false };
+  };
+  const terrain = await import('../src/terrain.js');
+  await terrain.loadTerrainData('');
+  globalThis.fetch = innerFetch;
+  assert(terrain.isHighResTerrain(), 'DGM1 terrain not active');
+  const probe = { lon: 9.9293, lat: 49.7935 };
+  const utm = lonLatToUtm(probe.lon, probe.lat);
+  const expected = eleAt(utm.easting, utm.northing);
+  const got = terrain.sampleElevation(probe.lon, probe.lat);
+  assert(Math.abs(got - expected) < 1.5, `DGM1 sample off: ${got.toFixed(1)} vs ${expected.toFixed(1)}`);
+  console.log(`ok DGM1 pipeline: bake + utm32 sampling (${got.toFixed(1)} m ≈ ${expected.toFixed(1)} m)`);
+}
+
 console.log('\nAll smoke tests passed.');

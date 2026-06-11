@@ -90,13 +90,15 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         attribute vec2 aWin;
         attribute vec4 aExtra;
         varying vec2 vWin;
-        varying vec4 vExtra;`
+        varying vec4 vExtra;
+        varying vec3 vWPos;`
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vWin = aWin;
-        vExtra = aExtra;`
+        vExtra = aExtra;
+        vWPos = (modelMatrix * vec4(position, 1.0)).xyz;`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -107,8 +109,16 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         uniform float u_floodGlow;
         varying vec2 vWin;
         varying vec4 vExtra;
+        varying vec3 vWPos;
         float winHash(vec2 cell, float seed) {
           return fract(sin(dot(cell + seed * 91.7, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        // 1 inside a window pane of the facade grid, 0 on masonry
+        float windowMask(vec2 win, float eaveH) {
+          vec2 cuv = fract((win - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
+          float inWin = step(0.24, cuv.x) * step(cuv.x, 0.76) * step(0.28, cuv.y) * step(cuv.y, 0.78);
+          float validRow = step(0.9, win.y) * step(win.y, eaveH - 0.8);
+          return inWin * validRow;
         }`
       )
       .replace(
@@ -122,6 +132,20 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
           float ledge = 1.0 - 0.08 * smoothstep(0.08, 0.0, min(fy, 1.0 - fy));
           float grain = 0.95 + 0.10 * winHash(floor(vWin * vec2(0.9, 1.6)), vExtra.x + 5.0);
           diffuseColor.rgb *= mix(1.0, baseShade * ledge * grain, wall);
+
+          // daylight windows: darker glass panes set into the facade
+          float win = windowMask(vWin, vExtra.w) * wall;
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.30, 0.34, 0.40) + vec3(0.02, 0.03, 0.05), win * 0.9);
+
+          // roof tiles: rows running along the eaves (perpendicular to the slope)
+          vec3 faceN = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
+          if (wall < 0.5 && abs(faceN.y) < 0.93 && abs(faceN.y) > 0.2) {
+            vec2 dir2 = normalize(faceN.xz + vec2(1e-5, 0.0));
+            float row = fract(dot(vWPos.xz, dir2) / 0.42);
+            float tile = 0.93 + 0.07 * smoothstep(0.1, 0.45, abs(row - 0.5) * 2.0);
+            float col = 0.97 + 0.05 * winHash(floor(vec2(dot(vWPos.xz, vec2(-dir2.y, dir2.x)) / 0.55, dot(vWPos.xz, dir2) / 0.42)), vExtra.x);
+            diffuseColor.rgb *= tile * col;
+          }
         }`
       )
       .replace(

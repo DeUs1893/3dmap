@@ -14,12 +14,14 @@
     "preview": "vite preview",
     "bake-terrain": "node tools/bake-terrain.mjs",
     "test": "node test/smoke.mjs",
-    "bake-lod2": "node tools/bake-lod2.mjs"
+    "bake-lod2": "node tools/bake-lod2.mjs",
+    "bake-dgm1": "node tools/bake-dgm1.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "geotiff": "^3.0.5",
     "pngjs": "^7.0.0",
     "puppeteer": "^25.1.0",
     "vite": "^5.4.21"

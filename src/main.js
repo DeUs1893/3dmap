@@ -69,7 +69,10 @@ async function boot() {
   composer.addPass(bloom);
   // cinematic grade: gentle saturation, warm shadow lift, vignette
   const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null } },
+    uniforms: {
+      tDiffuse: { value: null },
+      uTexel: { value: new THREE.Vector2(1 / window.innerWidth, 1 / window.innerHeight) },
+    },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main() {
@@ -79,9 +82,17 @@ async function boot() {
     `,
     fragmentShader: /* glsl */ `
       uniform sampler2D tDiffuse;
+      uniform vec2 uTexel;
       varying vec2 vUv;
       void main() {
         vec4 color = texture2D(tDiffuse, vUv);
+        // unsharp mask for perceived resolution
+        vec3 nb =
+          texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb +
+          texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb +
+          texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb +
+          texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        color.rgb = max(color.rgb * 1.48 - nb * 0.12, 0.0);
         float l = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
         color.rgb = mix(vec3(l), color.rgb, 1.12);
         color.rgb += vec3(0.014, 0.007, -0.004) * (1.0 - smoothstep(0.0, 0.35, l));
@@ -310,6 +321,7 @@ async function boot() {
     composer.setSize(w, h);
     gtao.setSize(w, h);
     bloom.setSize(w, h);
+    grade.uniforms.uTexel.value.set(1 / w, 1 / h);
     labelRenderer.setSize(w, h);
   });
 

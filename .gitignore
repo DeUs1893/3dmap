@@ -5,3 +5,6 @@ dist/
 # locally baked official LoD2 building models (npm run bake-lod2)
 public/data/lod2.bin
 public/data/lod2.json
+# locally baked official DGM1 terrain (npm run bake-dgm1)
+public/data/terrain-dgm1.bin
+public/data/terrain-dgm1.json

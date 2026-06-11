@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MAP_BBOX, TERRAIN_MARGIN, BASE_ELEVATION } from './config.js';
 import { project, unproject, noise2D } from './geo.js';
+import { lonLatToUtm } from './utm.js';
 
 let meta = null;
 let grid = null;
@@ -13,20 +14,46 @@ function latToTileY(lat, z) {
   return ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * 2 ** z;
 }
 
+async function tryLoad(baseUrl, name) {
+  const metaRes = await fetch(`${baseUrl}data/${name}.json`);
+  if (!metaRes.ok) return false;
+  const binRes = await fetch(`${baseUrl}data/${name}.bin`);
+  if (!binRes.ok) return false;
+  const m = await metaRes.json();
+  const g = new Uint16Array(await binRes.arrayBuffer());
+  if (g.length !== m.width * m.height) return false;
+  meta = m;
+  grid = g;
+  return true;
+}
+
 export async function loadTerrainData(baseUrl = '') {
-  const [metaRes, binRes] = await Promise.all([
-    fetch(`${baseUrl}data/terrain.json`),
-    fetch(`${baseUrl}data/terrain.bin`),
-  ]);
-  if (!metaRes.ok || !binRes.ok) throw new Error('Geländedaten konnten nicht geladen werden');
-  meta = await metaRes.json();
-  grid = new Uint16Array(await binRes.arrayBuffer());
+  // surveyed 1 m DGM1 (locally baked) wins over the bundled satellite terrain
+  try {
+    if (await tryLoad(baseUrl, 'terrain-dgm1')) {
+      console.info('[terrain] amtliches DGM1-Gelände geladen (1 m Laserscan)');
+      return;
+    }
+  } catch {
+    /* fall back */
+  }
+  if (!(await tryLoad(baseUrl, 'terrain'))) {
+    throw new Error('Geländedaten konnten nicht geladen werden');
+  }
 }
 
 // Elevation in meters above sea level, bilinear-filtered
 export function sampleElevation(lon, lat) {
-  const fx = (lonToTileX(lon, meta.zoom) - meta.tileXMin) * 256;
-  const fy = (latToTileY(lat, meta.zoom) - meta.tileYMin) * 256;
+  let fx;
+  let fy;
+  if (meta.mode === 'utm32') {
+    const { easting, northing } = lonLatToUtm(lon, lat);
+    fx = (easting - meta.originE) / meta.cellSize;
+    fy = (meta.originN - northing) / meta.cellSize;
+  } else {
+    fx = (lonToTileX(lon, meta.zoom) - meta.tileXMin) * 256;
+    fy = (latToTileY(lat, meta.zoom) - meta.tileYMin) * 256;
+  }
   const x0 = Math.max(0, Math.min(meta.width - 2, Math.floor(fx)));
   const y0 = Math.max(0, Math.min(meta.height - 2, Math.floor(fy)));
   const ax = Math.max(0, Math.min(1, fx - x0));
@@ -37,6 +64,10 @@ export function sampleElevation(lon, lat) {
   const v01 = grid[(y0 + 1) * w + x0];
   const v11 = grid[(y0 + 1) * w + x0 + 1];
   return ((v00 * (1 - ax) + v10 * ax) * (1 - ay) + (v01 * (1 - ax) + v11 * ax) * ay) / 10;
+}
+
+export function isHighResTerrain() {
+  return meta?.mode === 'utm32';
 }
 
 // Scene-space ground height (y) at local x/z
@@ -59,9 +90,10 @@ export function buildTerrainMesh(waterMask = null) {
   const sizeX = maxX - minX;
   const sizeZ = maxZ - minZ;
 
-  const step = 9; // meters per vertex
-  const segX = Math.min(640, Math.round(sizeX / step));
-  const segZ = Math.min(640, Math.round(sizeZ / step));
+  // finer mesh when the surveyed DGM1 heightmap is loaded
+  const step = isHighResTerrain() ? 5 : 8;
+  const segX = Math.min(960, Math.round(sizeX / step));
+  const segZ = Math.min(960, Math.round(sizeZ / step));
 
   const geo = new THREE.PlaneGeometry(sizeX, sizeZ, segX, segZ);
   geo.rotateX(-Math.PI / 2); // plane in xz, +y up
