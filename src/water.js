@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
-import { projectRing, clipRingToRect } from './polyutil.js';
+import { projectRing, clipRingToRect, clipPathToRect, ringArea } from './polyutil.js';
 
 export const waterUniforms = {
   u_time: { value: 0 },
@@ -21,7 +21,7 @@ export const waterUniforms = {
  *  - mask(x, z): water level if the point is inside a water polygon, else null
  *  - build(): THREE.Mesh of the animated, planar-reflecting water surface
  */
-export function prepareWater(waterPolys) {
+export function prepareWater(waterPolys, riverLines = []) {
   // rivers extend far beyond the map; clip everything to the rendered extent
   const rect = getMapRect(500);
   const polys = waterPolys
@@ -33,26 +33,50 @@ export function prepareWater(waterPolys) {
     }))
     .filter((p) => p.outer.length >= 3);
 
-  if (!polys.length) {
+  // Fallback: if the bank polygons are missing/broken, draw the river from its
+  // centerline (waterway=river) buffered by its width.
+  const polyArea = polys.reduce((s, p) => s + Math.abs(ringArea(p.outer)), 0);
+  const strokes = [];
+  if (polyArea < 60000) {
+    for (const line of riverLines) {
+      for (const piece of clipPathToRect(projectRing(line.path), rect)) {
+        if (piece.length >= 2) strokes.push({ pts: piece, width: line.width });
+      }
+    }
+    console.info(
+      `[water] bank polygons cover only ${Math.round(polyArea)} m² — falling back to ${strokes.length} centerline strokes`
+    );
+  }
+
+  if (!polys.length && !strokes.length) {
     return { level: 0, mask: () => null, build: () => new THREE.Group() };
   }
 
-  // Water level: low percentile of terrain height along the banks
+  // Water level: low percentile of terrain height along banks / centerlines
   const samples = [];
   for (const p of polys) {
     for (let i = 0; i < p.outer.length; i += 2) {
       samples.push(groundY(p.outer[i].x, p.outer[i].y));
     }
   }
+  for (const s of strokes) {
+    for (const v of s.pts) samples.push(groundY(v.x, v.y));
+  }
   samples.sort((a, b) => a - b);
   const level = samples[Math.floor(samples.length * 0.12)] - 0.3;
 
-  // Rasterized mask over the bounding box of all water polys for O(1) lookups
+  // Rasterized mask over the bounding box of all water shapes for O(1) lookups
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of polys) {
     for (const v of p.outer) {
       minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
       minZ = Math.min(minZ, v.y); maxZ = Math.max(maxZ, v.y);
+    }
+  }
+  for (const s of strokes) {
+    for (const v of s.pts) {
+      minX = Math.min(minX, v.x - s.width); maxX = Math.max(maxX, v.x + s.width);
+      minZ = Math.min(minZ, v.y - s.width); maxZ = Math.max(maxZ, v.y + s.width);
     }
   }
   const res = 3; // meters per cell
@@ -82,6 +106,19 @@ export function prepareWater(waterPolys) {
       ctx.closePath();
     }
     ctx.fill('evenodd');
+  }
+  ctx.strokeStyle = '#fff';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const s of strokes) {
+    ctx.lineWidth = Math.max(2, s.width / res);
+    ctx.beginPath();
+    s.pts.forEach((v, i) => {
+      const cx = (v.x - minX) / res;
+      const cy = (v.y - minZ) / res;
+      i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+    });
+    ctx.stroke();
   }
   const maskData = ctx.getImageData(0, 0, gw, gh).data;
 

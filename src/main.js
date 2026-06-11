@@ -92,7 +92,11 @@ async function boot() {
 
   // ---------- layers ----------
   setStatus('Forme das Maintal …');
-  const water = prepareWater(data.waterPolys);
+  console.info(
+    `[osm] ${data.buildings.length} Gebäude, ${data.parts.length} Teile, ` +
+    `${data.waterPolys.length} Wasserpolygone, ${data.riverLines.length} Flusslinien`
+  );
+  const water = prepareWater(data.waterPolys, data.riverLines);
   const { mesh: terrainMesh, bounds } = buildTerrainMesh(water.mask);
   scene.add(terrainMesh);
   scene.add(water.build());

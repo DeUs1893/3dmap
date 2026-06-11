@@ -142,6 +142,29 @@ for (let i = 0; i < pPos.count; i++) {
 }
 console.log(`ok geometry roofs + parts: ${pPos.count} verts`);
 
+// --- Overpass query regression guards ---
+const { buildQuery } = await import('../src/osm.js');
+const query = buildQuery();
+assert(/out geom;\s*$/.test(query), 'query must end with full "out geom"');
+assert(!query.includes('out tags'), '"out tags" strips relation members — must not be used');
+assert(query.includes('waterway'), 'water queries missing');
+console.log('ok overpass query uses full geometry output');
+
+// --- river centerline parsing (water fallback source) ---
+const riverParsed = parseOSM({
+  elements: [
+    {
+      type: 'way', id: 30, tags: { waterway: 'river', width: '90' },
+      geometry: [
+        { lon: 9.925, lat: 49.785 }, { lon: 9.926, lat: 49.793 }, { lon: 9.928, lat: 49.8 },
+      ],
+    },
+  ],
+});
+assert.equal(riverParsed.riverLines.length, 1, 'river centerline not parsed');
+assert.equal(riverParsed.riverLines[0].width, 90, 'river width tag ignored');
+console.log('ok river centerline fallback parsing');
+
 // --- multipolygon relation stitching (Residenz-style split outer ways) ---
 const relSynthetic = {
   elements: [

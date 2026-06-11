@@ -5,7 +5,7 @@ import { hash01 } from './geo.js';
 // Fetch + cache
 // ---------------------------------------------------------------------------
 
-function buildQuery() {
+export function buildQuery() {
   const b = `${MAP_BBOX.south},${MAP_BBOX.west},${MAP_BBOX.north},${MAP_BBOX.east}`;
   return `[out:json][timeout:120];
 (
@@ -18,11 +18,15 @@ function buildQuery() {
   way["natural"="water"](${b});
   relation["natural"="water"](${b});
   way["waterway"="riverbank"](${b});
+  relation["waterway"="riverbank"](${b});
+  way["water"="river"](${b});
+  relation["water"="river"](${b});
+  way["waterway"~"^(river|canal)$"](${b});
   way["leisure"~"^(park|garden|pitch|playground)$"](${b});
   way["landuse"~"^(forest|grass|meadow|vineyard|cemetery|orchard|recreation_ground|village_green)$"](${b});
   way["natural"~"^(wood|scrub)$"](${b});
 );
-out tags geom;`;
+out geom;`;
 }
 
 function idbOpen() {
@@ -220,6 +224,7 @@ export function parseOSM(json) {
   const roads = [];
   const rails = [];
   const waterPolys = [];
+  const riverLines = [];
   const greens = [];
 
   const pushBuilding = (list, el, outer, holes, typeTag) => {
@@ -278,7 +283,20 @@ export function parseOSM(json) {
       continue;
     }
 
-    const isWater = tags.natural === 'water' || tags.waterway === 'riverbank';
+    // river/canal centerlines — fallback source if area polygons are missing
+    if (el.type === 'way' && (tags.waterway === 'river' || tags.waterway === 'canal')) {
+      const path = wayRing(el);
+      if (path.length >= 2) {
+        riverLines.push({
+          path,
+          width: parseHeightMeters(tags.width) ?? (tags.waterway === 'river' ? 75 : 28),
+        });
+      }
+      continue;
+    }
+
+    const isWater =
+      tags.natural === 'water' || tags.waterway === 'riverbank' || tags.water === 'river';
     if (isWater) {
       if (el.type === 'way') {
         const ring = wayRing(el);
@@ -357,5 +375,5 @@ export function parseOSM(json) {
     }
   }
 
-  return { buildings, parts, roads, rails, waterPolys, greens };
+  return { buildings, parts, roads, rails, waterPolys, riverLines, greens };
 }
