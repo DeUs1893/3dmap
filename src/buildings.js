@@ -19,7 +19,29 @@ const STONE_ROOF = new THREE.Color(0x6f6a60);
 const COPPER = new THREE.Color(0x4e7d6e); // patinated church roofs/domes
 
 function isStone(type) {
-  return type === 'church' || type === 'cathedral' || type === 'chapel' || type === 'castle' || type === 'tower';
+  return (
+    type === 'church' || type === 'cathedral' || type === 'chapel' ||
+    type === 'castle' || type === 'tower' || type === 'palace' || type === 'monastery'
+  );
+}
+
+// OSM colour tags: hex with/without '#', or CSS colour names
+function colorFromTag(value) {
+  if (!value) return null;
+  const v = String(value).trim().toLowerCase();
+  try {
+    if (/^#?[0-9a-f]{6}$/.test(v)) return new THREE.Color(v.startsWith('#') ? v : `#${v}`);
+    if (/^[a-z]+$/.test(v)) {
+      const c = new THREE.Color();
+      // Color.setStyle warns on unknown names and leaves the color untouched
+      const marker = c.getHex();
+      c.setStyle(v);
+      if (c.getHex() !== marker || v === 'white') return c;
+    }
+  } catch {
+    /* unparseable tag */
+  }
+  return null;
 }
 
 // Per-building floodlight factor from landmark proximity
@@ -74,6 +96,19 @@ export function createBuildingMaterial() {
         varying vec4 vExtra;
         float winHash(vec2 cell, float seed) {
           return fract(sin(dot(cell + seed * 91.7, vec2(12.9898, 78.233))) * 43758.5453);
+        }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          float wall = vExtra.y;
+          // grounded base, storey ledges and plaster grain keep facades from looking sterile
+          float baseShade = 0.74 + 0.26 * smoothstep(0.0, 5.5, vWin.y);
+          float fy = fract((vWin.y - 0.9) / 3.1);
+          float ledge = 1.0 - 0.08 * smoothstep(0.08, 0.0, min(fy, 1.0 - fy));
+          float grain = 0.95 + 0.10 * winHash(floor(vWin * vec2(0.9, 1.6)), vExtra.x + 5.0);
+          diffuseColor.rgb *= mix(1.0, baseShade * ledge * grain, wall);
         }`
       )
       .replace(
@@ -161,20 +196,71 @@ const GABLE_DEFAULT_TYPES = new Set([
   'yes', 'house', 'detached', 'semidetached_house', 'terrace', 'residential', 'apartments',
 ]);
 
-function resolveRoof(b, outer, holes) {
+// Hip roof over arbitrary footprints (incl. courtyards): height rises with the
+// distance to the nearest footprint edge — a cheap straight-skeleton stand-in.
+function edgeDistanceFn(outer, holes) {
+  const edges = [];
+  for (const ring of [outer, ...holes]) {
+    for (let i = 0; i < ring.length; i++) {
+      edges.push([ring[i], ring[(i + 1) % ring.length]]);
+    }
+  }
+  return (p) => {
+    let min = Infinity;
+    for (const [a, b] of edges) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy || 1e-9;
+      const t = THREE.MathUtils.clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq, 0, 1);
+      const ex = a.x + dx * t - p.x;
+      const ey = a.y + dy * t - p.y;
+      const d = ex * ex + ey * ey;
+      if (d < min) min = d;
+    }
+    return Math.sqrt(min);
+  };
+}
+
+function resolveRoof(b, outer, holes, ctx) {
   let shape = b.roof?.shape ?? null;
   if (shape === 'flat') return null;
   const area = Math.abs(ringArea(outer));
   if (!shape) {
     // German old towns are gabled by default; keep big/complex footprints flat
-    const ok =
+    const gableOk =
       holes.length === 0 &&
       outer.length <= 12 &&
       area < 700 &&
       (b.minHeight ?? 0) === 0 &&
       GABLE_DEFAULT_TYPES.has(b.type);
-    if (!ok) return null;
-    shape = 'gabled';
+    // large historic/landmark buildings (Residenz & Co.) get hip/mansard roofs
+    const hipOk =
+      !gableOk &&
+      area > 600 &&
+      (b.minHeight ?? 0) === 0 &&
+      (ctx.stone || ctx.flood > 0.25) &&
+      b.height > 9;
+    if (gableOk) shape = 'gabled';
+    else if (hipOk) shape = 'hip-edge';
+    else return null;
+  }
+
+  // courtyard footprints can't use the box-based shapes — fall back to edge distance
+  if (holes.length > 0 && (shape === 'hipped' || shape === 'gabled' || shape === 'mansard')) {
+    shape = 'hip-edge';
+  }
+  if (shape === 'hip-edge') {
+    const obb = orientedBox(outer);
+    const run = Math.min(obb.halfWidth, 9);
+    const roofH = b.roof?.height ?? Math.min(5.5, run * 0.7);
+    const dist = edgeDistanceFn(outer, holes);
+    return {
+      shape,
+      height: roofH,
+      maxEdge: 4,
+      t: (p) => THREE.MathUtils.clamp(dist(p) / run, 0, 1),
+      isDome: false,
+    };
   }
   const obb = orientedBox(outer);
   const defaultH = {
@@ -279,26 +365,28 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
     const baseY = ground + minHeight;
     const bottom = minHeight > 0 ? baseY : ground - 6; // skirt into slopes
 
-    const roof = resolveRoof(b, outer, holes);
-    const roofH = roof ? Math.min(roof.height, (top - baseY) * 0.7) : 0;
-    const eave = top - roofH;
-    const eaveH = eave - baseY;
-    const roofYAt = roof ? (p) => eave + roofH * roof.t(p) : () => top;
-
     const seed = hash01(b.id);
     const stone = isStone(b.type);
     const centroid = ringCentroid(outer);
     const flood = floodFactor(centroid);
 
-    const wallC = (stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
+    const roof = resolveRoof(b, outer, holes, { stone, flood });
+    const roofH = roof ? Math.min(roof.height, (top - baseY) * 0.7) : 0;
+    const eave = top - roofH;
+    const eaveH = eave - baseY;
+    const roofYAt = roof ? (p) => eave + roofH * roof.t(p) : () => top;
+
+    const taggedWall = colorFromTag(b.wallColor);
+    const taggedRoof = colorFromTag(b.roofColor);
+    const wallC = (taggedWall ?? (stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)]))
       .clone()
-      .multiplyScalar(0.85 + hash01(b.id + 7) * 0.3);
-    const roofC = (stone
+      .multiplyScalar(taggedWall ? 0.95 + hash01(b.id + 7) * 0.1 : 0.85 + hash01(b.id + 7) * 0.3);
+    const roofC = (taggedRoof ?? (stone
       ? roof?.isDome ? COPPER : STONE_ROOF
       : ROOF_PALETTE[Math.floor(hash01(b.id + 13) * ROOF_PALETTE.length)]
-    )
+    ))
       .clone()
-      .multiplyScalar(0.85 + hash01(b.id + 31) * 0.3);
+      .multiplyScalar(taggedRoof ? 0.95 + hash01(b.id + 31) * 0.1 : 0.85 + hash01(b.id + 31) * 0.3);
 
     // --- walls ---
     // In (x, z) with z = south, outward-facing walls need the outer ring clockwise

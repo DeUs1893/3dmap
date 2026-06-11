@@ -195,6 +195,36 @@ const relMesh = await buildBuildings(relParsed.buildings);
 assert(relMesh.geometry.attributes.position.count > 12, 'relation building has no geometry');
 console.log('ok relation stitching (split outer ways → 1 building)');
 
+// --- hip roof over courtyard footprint (Residenz-style) ---
+const ring = (cx, cy, w, h) => [
+  { lon: cx - w, lat: cy - h }, { lon: cx + w, lat: cy - h },
+  { lon: cx + w, lat: cy + h }, { lon: cx - w, lat: cy + h }, { lon: cx - w, lat: cy - h },
+];
+const palaceParsed = parseOSM({
+  elements: [
+    {
+      type: 'relation', id: 40,
+      tags: { building: 'palace', height: '22', 'building:colour': '#d9c8a0' },
+      members: [
+        { type: 'way', role: 'outer', geometry: ring(9.9394, 49.7926, 0.0011, 0.0005) },
+        { type: 'way', role: 'inner', geometry: ring(9.9394, 49.7926, 0.0004, 0.0002) },
+      ],
+    },
+  ],
+});
+assert.equal(palaceParsed.buildings.length, 1);
+assert.equal(palaceParsed.buildings[0].wallColor, '#d9c8a0');
+assert.equal(palaceParsed.buildings[0].holes.length, 1, 'courtyard hole lost');
+const palaceMesh = await buildBuildings(palaceParsed.buildings);
+const palPos = palaceMesh.geometry.attributes.position;
+let palMax = -Infinity;
+for (let i = 0; i < palPos.count; i++) {
+  assert(Number.isFinite(palPos.getY(i)), 'NaN in palace geometry');
+  palMax = Math.max(palMax, palPos.getY(i));
+}
+assert(palPos.count > 200, `palace roof not subdivided (${palPos.count} verts)`);
+console.log(`ok palace courtyard hip roof: ${palPos.count} verts, top ${palMax.toFixed(1)}`);
+
 // --- solar position ---
 const { sunPosition } = await import('../src/sun.js');
 const noon = sunPosition(new Date(Date.UTC(2026, 5, 11, 11, 15)), 49.79, 9.93);

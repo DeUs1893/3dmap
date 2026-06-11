@@ -238,6 +238,8 @@ export function parseOSM(json) {
       roof: roofInfo(tags),
       type: typeTag,
       name: tags.name ?? null,
+      wallColor: tags['building:colour'] ?? null,
+      roofColor: tags['roof:colour'] ?? null,
     });
   };
 
