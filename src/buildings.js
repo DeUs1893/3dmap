@@ -467,6 +467,16 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
   geo.setAttribute('aExtra', new THREE.Float32BufferAttribute(extra, 4));
   geo.computeVertexNormals();
 
+  // degenerate triangles yield NaN normals, which poison the post-processing chain
+  const nor = geo.attributes.normal.array;
+  for (let i = 0; i < nor.length; i += 3) {
+    if (!Number.isFinite(nor[i]) || !Number.isFinite(nor[i + 1]) || !Number.isFinite(nor[i + 2])) {
+      nor[i] = 0;
+      nor[i + 1] = 1;
+      nor[i + 2] = 0;
+    }
+  }
+
   const mesh = new THREE.Mesh(geo, createBuildingMaterial());
   mesh.castShadow = true;
   mesh.receiveShadow = true;

@@ -296,6 +296,11 @@ for (const gml of gmls) {
         dirX /= len; dirZ /= len;
       }
       for (const tri of triangulate3D(poly.ring)) {
+        // drop slivers that collapse to zero area after 0.1 m quantization
+        const ux = tri[1][0] - tri[0][0], uy = tri[1][1] - tri[0][1], uz = tri[1][2] - tri[0][2];
+        const vx = tri[2][0] - tri[0][0], vy = tri[2][1] - tri[0][1], vz = tri[2][2] - tri[0][2];
+        const cx2 = uy * vz - uz * vy, cy2 = uz * vx - ux * vz, cz2 = ux * vy - uy * vx;
+        if (cx2 * cx2 + cy2 * cy2 + cz2 * cz2 < 0.0016) continue; // area < 0.02 m²
         for (const [x, y, z] of tri) {
           positions.push(Math.round(x * 10), Math.round(y * 10), Math.round(z * 10));
           let u = flag === 0 ? x * dirX + z * dirZ : 0;

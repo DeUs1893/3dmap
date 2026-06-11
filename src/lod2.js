@@ -86,6 +86,20 @@ export async function loadLOD2(baseUrl = '') {
   geo.setAttribute('aExtra', new THREE.BufferAttribute(extra, 4));
   geo.computeVertexNormals();
 
+  // Quantization collapses some sliver triangles to zero area; their normals
+  // become NaN and a single NaN poisons the whole GTAO/bloom framebuffer.
+  const nor = geo.attributes.normal.array;
+  let repaired = 0;
+  for (let i = 0; i < nor.length; i += 3) {
+    if (!Number.isFinite(nor[i]) || !Number.isFinite(nor[i + 1]) || !Number.isFinite(nor[i + 2])) {
+      nor[i] = 0;
+      nor[i + 1] = 1;
+      nor[i + 2] = 0;
+      repaired++;
+    }
+  }
+  if (repaired) console.info(`[lod2] ${repaired} degenerierte Normalen repariert`);
+
   const mesh = new THREE.Mesh(geo, createBuildingMaterial());
   mesh.castShadow = true;
   mesh.receiveShadow = true;
