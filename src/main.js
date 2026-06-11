@@ -215,6 +215,10 @@ async function boot() {
     $('help-orbit').classList.toggle('hidden', mode !== 'orbit');
     $('help-fly').classList.toggle('hidden', mode !== 'fly');
   };
+  if (isMobile) {
+    $('help-orbit').innerHTML =
+      '<kbd>1 Finger</kbd> Drehen · <kbd>2 Finger</kbd> Zoomen &amp; Verschieben · <kbd>Tippen</kbd> auf Label fliegt hin';
+  }
 
   // ---------- landmarks ----------
   const labelObjects = [];
