@@ -5,7 +5,7 @@
 // Usage: node tools/screenshot.mjs [outDir]
 
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import puppeteer from 'puppeteer';
 
 const OUT = process.argv[2] ?? '/tmp/shots';
@@ -201,8 +201,22 @@ try {
 
   await page.setRequestInterception(true);
   const synthetic = JSON.stringify(syntheticOSM());
+  const lod2Dir = process.env.LOD2_DIR;
   page.on('request', (req) => {
     const url = req.url();
+    if (lod2Dir && url.includes('data/lod2.')) {
+      try {
+        const file = `${lod2Dir}/lod2.${url.endsWith('.json') ? 'json' : 'bin'}`;
+        req.respond({
+          status: 200,
+          contentType: url.endsWith('.json') ? 'application/json' : 'application/octet-stream',
+          body: readFileSync(file),
+        });
+      } catch {
+        req.respond({ status: 404, body: '' });
+      }
+      return;
+    }
     if (url.includes('interpreter') || url.includes('overpass')) {
       req.respond({
         status: 200,

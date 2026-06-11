@@ -311,9 +311,25 @@ async function boot() {
   };
 
   // ---------- loop ----------
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    showError(new Error('WebGL-Kontext verloren — GPU überlastet oder Treiberproblem. Seite neu laden.'));
+  });
   const clock = new THREE.Clock();
   const tmpV = new THREE.Vector3();
+  let loopErrorShown = false;
   renderer.setAnimationLoop(() => {
+    try {
+      tick();
+    } catch (err) {
+      if (!loopErrorShown) {
+        loopErrorShown = true;
+        console.error(err);
+        showError(err);
+      }
+    }
+  });
+  function tick() {
     const dt = Math.min(clock.getDelta(), 0.1);
     rig.update(dt);
     atmosphere.track(rig.orbit.target);
@@ -331,14 +347,19 @@ async function boot() {
 
     composer.render();
     labelRenderer.render(scene, camera);
-  });
+  }
+}
+
+function showError(err) {
+  $('loader')?.classList.add('fade');
+  $('error').classList.remove('hidden');
+  $('error-msg').textContent = `${err.message}`;
+  $('retry').addEventListener('click', () => location.reload());
 }
 
 boot().catch((err) => {
   console.error(err);
-  $('loader')?.classList.add('fade');
-  $('error').classList.remove('hidden');
-  $('error-msg').textContent =
-    `${err.message}. Die Karte benötigt eine Internetverbindung zu OpenStreetMap (Overpass API).`;
-  $('retry').addEventListener('click', () => location.reload());
+  showError(
+    new Error(`${err.message}. Die Karte benötigt eine Internetverbindung zu OpenStreetMap (Overpass API).`)
+  );
 });
