@@ -73,12 +73,13 @@ export const buildingUniforms = {
   u_floodGlow: { value: 0.3 },
 };
 
-export function createBuildingMaterial() {
+export function createBuildingMaterial(side = THREE.FrontSide) {
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.82,
     metalness: 0.02,
     flatShading: true,
+    side,
   });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, buildingUniforms);

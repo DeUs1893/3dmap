@@ -219,7 +219,16 @@ function triangulate3D(ring) {
   } catch {
     return [];
   }
-  return tris.map(([a, b, c]) => [pts[a], pts[b], pts[c]]);
+  // keep the source polygon's outward orientation: the axis-drop projection can
+  // mirror the winding, so re-align each triangle with the Newell normal
+  return tris.map(([a, b, c]) => {
+    const p = pts[a], q = pts[b], r = pts[c];
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2];
+    const vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
+    const dot =
+      (uy * vz - uz * vy) * nx + (uz * vx - ux * vz) * ny + (ux * vy - uy * vx) * nz;
+    return dot >= 0 ? [p, q, r] : [p, r, q];
+  });
 }
 
 const gmls = await fetchTiles();

@@ -100,7 +100,8 @@ export async function loadLOD2(baseUrl = '') {
   }
   if (repaired) console.info(`[lod2] ${repaired} degenerierte Normalen repariert`);
 
-  const mesh = new THREE.Mesh(geo, createBuildingMaterial());
+  // surveyed surfaces have mixed winding after triangulation — render both sides
+  const mesh = new THREE.Mesh(geo, createBuildingMaterial(THREE.DoubleSide));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.name = 'buildings-lod2';
