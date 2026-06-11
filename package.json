@@ -15,7 +15,8 @@
     "bake-terrain": "node tools/bake-terrain.mjs",
     "test": "node test/smoke.mjs",
     "bake-lod2": "node tools/bake-lod2.mjs",
-    "bake-dgm1": "node tools/bake-dgm1.mjs"
+    "bake-dgm1": "node tools/bake-dgm1.mjs",
+    "dev:lan": "vite --host"
   },
   "dependencies": {
     "three": "^0.169.0"
