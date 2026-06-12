@@ -13,7 +13,9 @@ import {
 const WALL_PALETTE = [0xc9b896, 0xbfae90, 0xd2c2a4, 0xb3a288, 0xc4ad9d, 0xa9ab97, 0xcbb6a8, 0xbdb09a].map(
   (c) => new THREE.Color(c)
 );
-const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f].map((c) => new THREE.Color(c));
+const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f, 0x6e4636, 0x7a5a48, 0x5f5d63].map(
+  (c) => new THREE.Color(c)
+);
 const STONE = new THREE.Color(0xb6a890);
 const STONE_ROOF = new THREE.Color(0x6f6a60);
 const COPPER = new THREE.Color(0x4e7d6e); // patinated church roofs/domes
@@ -23,6 +25,19 @@ export function isStone(type) {
     type === 'church' || type === 'cathedral' || type === 'chapel' ||
     type === 'castle' || type === 'tower' || type === 'palace' || type === 'monastery'
   );
+}
+
+// Structures that must not get the residential window grid: sacral/fortified
+// buildings, plus anything that isn't a habitable floor (walls, sheds …).
+const NO_WINDOW_TYPES = new Set([
+  'church', 'cathedral', 'chapel', 'tower', 'castle',
+  'wall', 'retaining_wall', 'city_wall', 'garage', 'garages', 'shed', 'hut',
+  'roof', 'carport', 'gate', 'bridge', 'greenhouse', 'ruins',
+]);
+
+export function windowsAllowed(type, eaveHeight) {
+  if (type && NO_WINDOW_TYPES.has(type)) return false;
+  return eaveHeight >= 3.2; // below that no real storey fits — it's a wall
 }
 
 // OSM colour tags: hex with/without '#', or CSS colour names
@@ -113,6 +128,16 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         float winHash(vec2 cell, float seed) {
           return fract(sin(dot(cell + seed * 91.7, vec2(12.9898, 78.233))) * 43758.5453);
         }
+        float winNoise(vec2 p, float seed) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(winHash(i, seed), winHash(i + vec2(1.0, 0.0), seed), u.x),
+            mix(winHash(i + vec2(0.0, 1.0), seed), winHash(i + vec2(1.0, 1.0), seed), u.x),
+            u.y
+          );
+        }
         // 1 inside a window pane of the facade grid, 0 on masonry;
         // ~10% of cells stay blank so facades don't look like graph paper
         float windowMask(vec2 win, float eaveH, float seed) {
@@ -140,7 +165,9 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
           float baseShade = 0.74 + 0.26 * smoothstep(0.0, 5.5, vWin.y);
           float fy = fract((vWin.y - 0.9) / 3.1);
           float ledge = 1.0 - 0.08 * smoothstep(0.08, 0.0, min(fy, 1.0 - fy));
-          float grain = 0.95 + 0.10 * winHash(floor(wbWinUv * vec2(0.9, 1.6)), vExtra.x + 5.0);
+          float grain = 0.93 +
+            0.09 * winNoise(wbWinUv * vec2(0.35, 0.6), vExtra.x + 5.0) +
+            0.05 * winNoise(wbWinUv * vec2(1.7, 2.6), vExtra.x + 9.0);
           diffuseColor.rgb *= mix(1.0, baseShade * ledge * grain, wall);
 
           // daylight windows: recessed glass with frame and sill
@@ -150,14 +177,22 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
             vec2 f = fract(g);
             float validRow = step(0.9, vWin.y) * step(vWin.y, vExtra.w - 0.8);
             float exists = step(0.1, winHash(cell + 23.0, vExtra.x)) * validRow;
-            float pane = step(0.26, f.x) * step(f.x, 0.74) * step(0.3, f.y) * step(f.y, 0.78) * exists;
-            float frame = step(0.22, f.x) * step(f.x, 0.78) * step(0.26, f.y) * step(f.y, 0.82) * exists - pane;
-            float sill = step(0.2, f.x) * step(f.x, 0.8) * step(0.21, f.y) * step(f.y, 0.255) * exists;
+            float groundFloor = step(-0.5, cell.y) * step(cell.y, 0.5); // first row above base
+            float isDoor = groundFloor * step(0.72, winHash(cell + 51.0, vExtra.x));
+            float pane = step(0.26, f.x) * step(f.x, 0.74) * step(0.3, f.y) * step(f.y, 0.78) * exists * (1.0 - isDoor);
+            float frame = step(0.22, f.x) * step(f.x, 0.78) * step(0.26, f.y) * step(f.y, 0.82) * exists * (1.0 - isDoor) - pane;
+            float sill = step(0.2, f.x) * step(f.x, 0.8) * step(0.21, f.y) * step(f.y, 0.255) * exists * (1.0 - isDoor);
             diffuseColor.rgb *= 1.0 - frame * 0.32;
-            vec3 glass = diffuseColor.rgb * vec3(0.3, 0.34, 0.4) + vec3(0.02, 0.03, 0.05);
+            // each pane catches the sky a little differently
+            float paneTint = 0.85 + 0.3 * winHash(cell + 77.0, vExtra.x);
+            vec3 glass = (diffuseColor.rgb * vec3(0.3, 0.34, 0.4) + vec3(0.02, 0.03, 0.05)) * paneTint;
             glass *= 0.8 + 0.5 * smoothstep(0.3, 0.78, f.y); // sky catch toward the top
             diffuseColor.rgb = mix(diffuseColor.rgb, glass, pane * 0.88);
             diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + vec3(0.035), sill * 0.8);
+            // ground floor: occasional doors instead of windows
+            float door = isDoor * step(0.3, f.x) * step(f.x, 0.7) * step(0.0, f.y) * step(f.y, 0.8) * exists;
+            vec3 doorCol = mix(vec3(0.16, 0.11, 0.07), vec3(0.2, 0.2, 0.22), step(0.5, winHash(cell + 91.0, vExtra.x)));
+            diffuseColor.rgb = mix(diffuseColor.rgb, doorCol, door * 0.92);
           }
 
           // roof tiles: rows running along the eaves (perpendicular to the slope)
@@ -428,7 +463,7 @@ export async function buildBuildings(buildings, onProgress = () => {}) {
     const roof = resolveRoof(b, outer, holes, { stone, flood });
     const roofH = roof ? Math.min(roof.height, (top - baseY) * 0.7) : 0;
     const eave = top - roofH;
-    const eaveH = eave - baseY;
+    const eaveH = windowsAllowed(b.type, eave - baseY) ? eave - baseY : 0;
     const roofYAt = roof ? (p) => eave + roofH * roof.t(p) : () => top;
 
     const taggedWall = colorFromTag(b.wallColor);

@@ -6,13 +6,15 @@ import * as THREE from 'three';
 import { LANDMARKS } from './config.js';
 import { project, hash01 } from './geo.js';
 import { groundY } from './terrain.js';
-import { createBuildingMaterial, isStone } from './buildings.js';
+import { createBuildingMaterial, isStone, windowsAllowed } from './buildings.js';
 import { projectRing, pointInRing } from './polyutil.js';
 
 const WALL_PALETTE = [0xc9b896, 0xbfae90, 0xd2c2a4, 0xb3a288, 0xc4ad9d, 0xa9ab97, 0xcbb6a8, 0xbdb09a].map(
   (c) => new THREE.Color(c)
 );
-const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f].map((c) => new THREE.Color(c));
+const ROOF_PALETTE = [0x9a5743, 0x8d4f3d, 0xa05f48, 0x86503f, 0x6e4636, 0x7a5a48, 0x5f5d63].map(
+  (c) => new THREE.Color(c)
+);
 const STONE = new THREE.Color(0xb6a890);
 const STONE_ROOF = new THREE.Color(0x77705f);
 
@@ -117,8 +119,10 @@ export async function loadLOD2(baseUrl = '', osmBuildings = [], waterMask = null
       const d = Math.hypot(b.cx - lm.x, b.cz - lm.z);
       if (d < lm.r) flood = Math.max(flood, 1 - (d / lm.r) * 0.5);
     }
-    // churches, chapels, towers & castles: stone look, no window grid
-    const stone = isStone(typeAt(b.cx, b.cz));
+    // churches & castles: stone look; windows only where real storeys fit
+    // (palaces keep their baroque window rows, garden walls get none)
+    const osmType = typeAt(b.cx, b.cz);
+    const stone = isStone(osmType);
     if (stone) stoneCount++;
     const wallC = tmp
       .copy(stone ? STONE : WALL_PALETTE[Math.floor(seed * WALL_PALETTE.length)])
@@ -130,7 +134,7 @@ export async function loadLOD2(baseUrl = '', osmBuildings = [], waterMask = null
     )
       .clone()
       .multiplyScalar(0.85 + hash01(Math.round(b.cx * 3 + b.cz)) * 0.3);
-    const eaveForWindows = stone ? 0 : b.eave; // eave 0 → windowMask never validates
+    const eaveForWindows = windowsAllowed(osmType, b.eave) ? b.eave : 0;
 
     for (let i = b.s; i < b.s + b.n; i++) {
       pos[i * 3] = qPos[i * 3] / 10;

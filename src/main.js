@@ -69,6 +69,8 @@ async function boot() {
     gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
     gtao.output = GTAOPass.OUTPUT.Default;
     gtao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.5, thickness: 1.5, scale: 0.9 });
+    // stronger poisson denoise — raw GTAO speckles on flat facades
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2.5, normalPhi: 4, radius: 8, rings: 3, samples: 12 });
     composer.addPass(gtao);
   }
   const bloom = new UnrealBloomPass(
