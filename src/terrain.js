@@ -70,6 +70,40 @@ export function isHighResTerrain() {
   return meta?.mode === 'utm32';
 }
 
+/**
+ * Close-range procedural grain so ground surfaces don't look like smooth
+ * plastic at first-person height; fades out with distance to avoid shimmer.
+ */
+export function applyGroundDetail(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroundPos = position.xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec2 vGroundPos;
+        float gHash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          float nearF = 1.0 - smoothstep(40.0, 200.0, length(vViewPosition));
+          if (nearF > 0.01) {
+            float g1 = gHash(floor(vGroundPos * 2.3));
+            float g2 = gHash(floor(vGroundPos * 0.5) + 11.0);
+            diffuseColor.rgb *= 1.0 + ((g1 - 0.5) * 0.14 + (g2 - 0.5) * 0.08) * nearF;
+          }
+        }`
+      );
+  };
+  return mat;
+}
+
 // Scene-space ground height (y) at local x/z
 export function groundY(x, z) {
   const { lon, lat } = unproject(x, z);
@@ -146,6 +180,7 @@ export function buildTerrainMesh(waterMask = null) {
     roughness: 0.95,
     metalness: 0.0,
   });
+  applyGroundDetail(mat);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'terrain';

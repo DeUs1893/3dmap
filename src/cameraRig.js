@@ -84,8 +84,17 @@ export class CameraRig {
       this.pitch = mode === 'walk' ? 0 : Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
       this.velocity.set(0, 0, 0);
       this.dom.requestPointerLock?.();
+      // tighter near plane on foot so nearby walls don't clip
+      if (mode === 'walk' && this.camera.near !== 0.9) {
+        this.camera.near = 0.9;
+        this.camera.updateProjectionMatrix();
+      }
     } else {
       document.exitPointerLock?.();
+      if (this.camera.near !== 2) {
+        this.camera.near = 2;
+        this.camera.updateProjectionMatrix();
+      }
       // keep current view: target a point in front of the camera
       const dir = new THREE.Vector3();
       this.camera.getWorldDirection(dir);
@@ -143,8 +152,11 @@ export class CameraRig {
       } else if (!this.isBlocked(p.x, nz)) {
         p.z = nz;
       }
-      // follow the terrain at eye height, smoothed against heightmap steps
-      const targetY = groundY(p.x, p.z) + this.eyeHeight;
+      // follow the terrain at eye height, smoothed against heightmap steps,
+      // plus a subtle head bob while moving
+      this.bobPhase = (this.bobPhase ?? 0) + this.velocity.length() * dt * 2.6;
+      const bob = Math.sin(this.bobPhase) * 0.04 * Math.min(1, this.velocity.length() / 2.4);
+      const targetY = groundY(p.x, p.z) + this.eyeHeight + bob;
       p.y += (targetY - p.y) * (1 - Math.exp(-dt * 12));
 
       this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));

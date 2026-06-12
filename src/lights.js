@@ -3,6 +3,18 @@ import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
 import { projectRing, densifyPath, clipPathToRect } from './polyutil.js';
 
+// Caps attenuated point sprites so a nearby lamp doesn't fill the screen
+// with a giant glow ball in first-person view.
+export function clampPointSize(mat, maxPx = 40) {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      'if ( isPerspective ) gl_PointSize *= ( scale / - mvPosition.z );',
+      `if ( isPerspective ) gl_PointSize = min( gl_PointSize * ( scale / - mvPosition.z ), ${maxPx.toFixed(1)} );`
+    );
+  };
+  return mat;
+}
+
 // Soft round sprite used by lamps and car lights
 export function makeGlowTexture() {
   const size = 64;
@@ -48,7 +60,7 @@ export function buildLamps(roads, texture) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const mat = new THREE.PointsMaterial({
+  const mat = clampPointSize(new THREE.PointsMaterial({
     size: 5.5,
     map: texture,
     vertexColors: true,
@@ -57,7 +69,7 @@ export function buildLamps(roads, texture) {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
-  });
+  }), 44);
   const points = new THREE.Points(geo, mat);
   points.name = 'lamps';
   points.frustumCulled = false;
@@ -124,7 +136,7 @@ export class TrafficSystem {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     this.points = new THREE.Points(
       geo,
-      new THREE.PointsMaterial({
+      clampPointSize(new THREE.PointsMaterial({
         size,
         map: texture,
         vertexColors: true,
@@ -132,7 +144,7 @@ export class TrafficSystem {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         sizeAttenuation: true,
-      })
+      }), 40)
     );
     this.points.name = name;
     this.points.frustumCulled = false;

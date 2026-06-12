@@ -18,7 +18,7 @@ import { buildRoads } from './roads.js';
 import { makeGlowTexture, buildLamps, TrafficSystem } from './lights.js';
 import { buildTravelGraph, AgentSystem, CarLights, buildCarMesh, buildPersonMesh } from './agents.js';
 import { prepareWater, waterUniforms } from './water.js';
-import { buildGreenery } from './greenery.js';
+import { buildGreenery, treeUniforms } from './greenery.js';
 import { Atmosphere } from './sky.js';
 import { CameraRig } from './cameraRig.js';
 import { buildCollisionIndex } from './collision.js';
@@ -509,6 +509,7 @@ async function boot() {
     people.update(dt, clock.elapsedTime);
     carLights.update();
     trams.update(dt);
+    treeUniforms.uTime.value = clock.elapsedTime;
     bells.update();
     waterUniforms.u_time.value += dt;
 

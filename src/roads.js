@@ -60,6 +60,12 @@ function createRoadMaterial() {
             // asphalt / cobble grain
             float grain = 0.92 + 0.16 * roadHash(floor(vec2(u * 1.6, v * 5.0)));
             diffuseColor.rgb *= grain;
+            // fine speckle for first-person range, fades with distance
+            float nearF = 1.0 - smoothstep(30.0, 160.0, length(vViewPosition));
+            if (nearF > 0.01) {
+              float fine = roadHash(floor(vec2(u * 7.0, v * 26.0)) + 3.0);
+              diffuseColor.rgb *= 1.0 + (fine - 0.5) * 0.15 * nearF;
+            }
             // cobble pattern in pedestrian zones
             if (rank > 3.5 && rank < 4.5) {
               float cobble = 0.93 + 0.14 * roadHash(floor(vec2(u * 2.4, v * 8.0)) + 31.0);

@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getMapRect } from './geo.js';
 import { groundY } from './terrain.js';
 import { projectRing, densifyPath, clipPathToRect } from './polyutil.js';
+import { clampPointSize } from './lights.js';
 
 // ---------------------------------------------------------------------------
 // Graph: ways are split at shared vertices (OSM junctions share nodes)
@@ -277,7 +278,7 @@ export class CarLights {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     this.points = new THREE.Points(
       geo,
-      new THREE.PointsMaterial({
+      clampPointSize(new THREE.PointsMaterial({
         size: 2.6,
         map: texture,
         vertexColors: true,
@@ -285,7 +286,7 @@ export class CarLights {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         sizeAttenuation: true,
-      })
+      }), 28)
     );
     this.points.frustumCulled = false;
     this.points.name = 'car-lights';

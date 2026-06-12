@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hash01, getMapRect } from './geo.js';
-import { groundY } from './terrain.js';
+import { groundY, applyGroundDetail } from './terrain.js';
 import {
   projectRing,
   ringArea,
@@ -79,7 +79,9 @@ export function buildGreenery(greens) {
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 })
+    applyGroundDetail(
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 })
+    )
   );
   mesh.receiveShadow = true;
   mesh.name = 'greenery';
@@ -87,17 +89,21 @@ export function buildGreenery(greens) {
   return { mesh, trees: buildTrees(treeSpots) };
 }
 
-function buildTrees(spots) {
-  if (!spots.length) return null;
-  // crown + trunk merged into one instanced geometry; the trunk is colored via
-  // vertex colors so a single material draw still works
-  // mergeGeometries needs uniform indexing: Icosahedron is non-indexed, Cylinder is not
-  const crownGeo = new THREE.IcosahedronGeometry(1, 1).translate(0, 1.05, 0);
-  const trunkGeo = new THREE.CylinderGeometry(0.09, 0.13, 1.0, 5).toNonIndexed().translate(0, 0.3, 0);
-  const paint = (geo, color) => {
-    const c = new THREE.Color(color);
-    const arr = new Float32Array(geo.attributes.position.count * 3);
-    for (let i = 0; i < geo.attributes.position.count; i++) {
+export const treeUniforms = { uTime: { value: 0 } };
+
+// Organic stylized tree: tapered trunk + three noise-displaced crown lobes
+// with a vertical light gradient baked into vertex colors. Wind sway happens
+// per-instance in the vertex shader.
+function makeTreeGeometry() {
+  const paintGradient = (geo, bottom, top, y0, y1) => {
+    const pos = geo.attributes.position;
+    const arr = new Float32Array(pos.count * 3);
+    const cb = new THREE.Color(bottom);
+    const ct = new THREE.Color(top);
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.min(1, Math.max(0, (pos.getY(i) - y0) / (y1 - y0)));
+      c.copy(cb).lerp(ct, t);
       arr[i * 3] = c.r;
       arr[i * 3 + 1] = c.g;
       arr[i * 3 + 2] = c.b;
@@ -105,12 +111,67 @@ function buildTrees(spots) {
     geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
     return geo;
   };
-  const geo = mergeGeometries([paint(trunkGeo, 0x6b5136), paint(crownGeo, 0xffffff)]);
+
+  const parts = [];
+  const trunk = new THREE.CylinderGeometry(0.07, 0.17, 1.3, 6).toNonIndexed().translate(0, 0.55, 0);
+  parts.push(paintGradient(trunk, 0x4a3621, 0x5d452c, 0, 1.3));
+
+  const lobes = [
+    { r: 1.0, x: 0, y: 1.7, z: 0 },
+    { r: 0.7, x: 0.55, y: 1.35, z: 0.32 },
+    { r: 0.66, x: -0.48, y: 1.5, z: -0.34 },
+  ];
+  const v = new THREE.Vector3();
+  for (const l of lobes) {
+    const lobe = new THREE.IcosahedronGeometry(l.r, 1);
+    // displace along the radius so the canopy reads organic, not crystalline
+    const pos = lobe.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const n = hash01(Math.round(v.x * 53 + v.y * 271 + v.z * 97 + l.r * 1000));
+      v.multiplyScalar(1 + (n - 0.5) * 0.42);
+      pos.setXYZ(i, v.x, v.y * 0.92, v.z);
+    }
+    lobe.translate(l.x, l.y, l.z);
+    // darker toward the trunk, light at the sun-facing top
+    parts.push(paintGradient(lobe, 0x686868, 0xffffff, 0.7, 2.6));
+  }
+  const geo = mergeGeometries(parts);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildTrees(spots) {
+  if (!spots.length) return null;
+  const geo = makeTreeGeometry();
   if (!geo) {
-    console.warn('[greenery] Baum-Geometrie-Merge fehlgeschlagen — keine Bäume');
+    console.warn('[greenery] Baum-Geometrie fehlgeschlagen — keine Bäume');
     return null;
   }
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: true });
+  const mat = new THREE.MeshStandardMaterial({
+    roughness: 0.9,
+    metalness: 0,
+    vertexColors: true,
+    flatShading: true,
+  });
+  // gentle per-instance wind sway on the canopy
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, treeUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+        {
+          vec3 ipos = vec3(instanceMatrix[3]);
+          float amp = smoothstep(0.7, 2.4, transformed.y) * 0.05;
+          transformed.x += sin(uTime * 1.3 + ipos.x * 0.21 + ipos.z * 0.17) * amp;
+          transformed.z += cos(uTime * 1.1 + ipos.x * 0.13 + ipos.z * 0.23) * amp;
+        }
+        #endif`
+      );
+  };
   const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
