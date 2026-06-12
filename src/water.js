@@ -82,8 +82,10 @@ export function prepareWater(waterPolys, riverLines = []) {
     }
   }
 
-  // Rasterized index mask: each polygon is drawn with its level index so the
-  // lookup returns the LOCAL water level.
+  // Rasterized index mask. Canvas fills are anti-aliased, so blended edge
+  // pixels would decode as a *different* water body's level (hello 90 m water
+  // spikes). Each shape is therefore rasterized separately in black/white and
+  // thresholded into an integer index grid.
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of polys) {
     for (const v of p.outer) {
@@ -100,51 +102,61 @@ export function prepareWater(waterPolys, riverLines = []) {
   const res = 2; // meters per cell
   const gw = Math.max(2, Math.ceil((maxX - minX) / res));
   const gh = Math.max(2, Math.ceil((maxZ - minZ) / res));
+  const indexGrid = new Uint16Array(gw * gh); // 0 = dry, i+1 = levels[i]
   const canvas = document.createElement('canvas');
   canvas.width = gw;
   canvas.height = gh;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, gw, gh);
+
+  const rasterizeInto = (levelIndex, draw) => {
+    ctx.clearRect(0, 0, gw, gh);
+    draw();
+    const px = ctx.getImageData(0, 0, gw, gh).data;
+    for (let i = 0; i < gw * gh; i++) {
+      if (px[i * 4 + 3] > 127) indexGrid[i] = levelIndex + 1;
+    }
+  };
+
   polys.forEach((p, pi) => {
-    const idx = Math.min(254, pi) + 1;
-    ctx.fillStyle = `rgb(${idx},${idx},${idx})`;
-    ctx.beginPath();
-    p.outer.forEach((v, i) => {
-      const cx = (v.x - minX) / res;
-      const cy = (v.y - minZ) / res;
-      i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
-    });
-    ctx.closePath();
-    for (const h of p.holes) {
-      h.forEach((v, i) => {
+    rasterizeInto(pi, () => {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      p.outer.forEach((v, i) => {
         const cx = (v.x - minX) / res;
         const cy = (v.y - minZ) / res;
         i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
       });
       ctx.closePath();
-    }
-    ctx.fill('evenodd');
+      for (const h of p.holes) {
+        h.forEach((v, i) => {
+          const cx = (v.x - minX) / res;
+          const cy = (v.y - minZ) / res;
+          i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+        });
+        ctx.closePath();
+      }
+      ctx.fill('evenodd');
+    });
   });
   if (strokes.length) {
-    const idx = Math.min(254, levels.length - 1) + 1;
-    ctx.strokeStyle = `rgb(${idx},${idx},${idx})`;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const st of strokes) {
-      ctx.lineWidth = Math.max(2, st.width / res);
-      ctx.beginPath();
-      st.pts.forEach((v, i) => {
-        const cx = (v.x - minX) / res;
-        const cy = (v.y - minZ) / res;
-        i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
-      });
-      ctx.stroke();
-    }
+    rasterizeInto(levels.length - 1, () => {
+      ctx.strokeStyle = '#fff';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const st of strokes) {
+        ctx.lineWidth = Math.max(2, st.width / res);
+        ctx.beginPath();
+        st.pts.forEach((v, i) => {
+          const cx = (v.x - minX) / res;
+          const cy = (v.y - minZ) / res;
+          i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+        });
+        ctx.stroke();
+      }
+    });
   }
-  const maskData = ctx.getImageData(0, 0, gw, gh).data;
   const levelAtCell = (cx, cy) => {
-    const v = maskData[(cy * gw + cx) * 4];
+    const v = indexGrid[cy * gw + cx];
     return v > 0 ? levels[Math.min(v - 1, levels.length - 1)] : null;
   };
 
@@ -163,7 +175,7 @@ export function prepareWater(waterPolys, riverLines = []) {
     const cornerIndex = new Map();
     // corners take the local water level of the cell that first references them
     const corner = (cx, cy, lvl) => {
-      const key = cy * (gw + 1) + cx;
+      const key = `${cy * (gw + 1) + cx}_${Math.round(lvl * 2)}`;
       let i = cornerIndex.get(key);
       if (i === undefined) {
         i = pos.length / 3;
