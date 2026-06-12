@@ -167,7 +167,7 @@ async function boot() {
 
   // Surveyed LoD2 models (if baked) replace the extruded OSM buildings
   setStatus('Suche amtliche LoD2-Modelle …');
-  const lod2 = await loadLOD2(import.meta.env.BASE_URL ?? './', data.buildings);
+  const lod2 = await loadLOD2(import.meta.env.BASE_URL ?? './', data.buildings, water.mask);
   let buildingCount;
   if (lod2) {
     scene.add(lod2.mesh);

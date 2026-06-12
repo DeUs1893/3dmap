@@ -53,7 +53,7 @@ function buildTypeIndex(osmBuildings) {
   };
 }
 
-export async function loadLOD2(baseUrl = '', osmBuildings = []) {
+export async function loadLOD2(baseUrl = '', osmBuildings = [], waterMask = null) {
   let meta;
   let bin;
   try {
@@ -85,6 +85,7 @@ export async function loadLOD2(baseUrl = '', osmBuildings = []) {
   const typeAt = buildTypeIndex(osmBuildings);
   const tmp = new THREE.Color();
   let stoneCount = 0;
+  let bridgeSkips = 0;
 
   for (const b of meta.buildings) {
     const seed = hash01(Math.round(b.cx * 7 + b.cz * 13));
@@ -92,10 +93,23 @@ export async function loadLOD2(baseUrl = '', osmBuildings = []) {
     // the fortress walls span slopes, so sample the ground under many vertices
     // and sink the base to the lowest point — buried beats floating.
     let minGround = groundY(b.cx, b.cz);
+    let samples = 0;
+    let waterHits = 0;
     const stride = Math.max(1, Math.floor(b.n / 32));
     for (let i = b.s; i < b.s + b.n; i += stride) {
-      const g = groundY(qPos[i * 3] / 10, qPos[i * 3 + 2] / 10);
+      const x = qPos[i * 3] / 10;
+      const z = qPos[i * 3 + 2] / 10;
+      const g = groundY(x, z);
       if (g < minGround) minGround = g;
+      samples++;
+      if (waterMask && waterMask(x, z) !== null) waterHits++;
+    }
+    // bridge structures span the river — the road layer already renders them
+    // properly (deck, piers, parapets); the "building" version would sink and
+    // get roof-colored, so skip it
+    if (samples > 0 && waterHits / samples > 0.4) {
+      bridgeSkips++;
+      continue; // vertices stay zeroed → zero-area triangles, invisible
     }
     const yShift = minGround - b.minH - 0.4;
     let flood = 0;
@@ -188,7 +202,8 @@ export async function loadLOD2(baseUrl = '', osmBuildings = []) {
   mesh.receiveShadow = true;
   mesh.name = 'buildings-lod2';
   console.info(
-    `[lod2] ${meta.buildings.length} amtliche Gebäudemodelle geladen, ${stoneCount} als Kirche/Turm/Burg erkannt`
+    `[lod2] ${meta.buildings.length} amtliche Gebäudemodelle geladen, ${stoneCount} als Kirche/Turm/Burg erkannt` +
+      (bridgeSkips ? `, ${bridgeSkips} Brückenbauwerke übersprungen` : '')
   );
   return { mesh, count: meta.buildings.length };
 }
