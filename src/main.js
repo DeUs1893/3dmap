@@ -20,6 +20,8 @@ import { prepareWater, waterUniforms } from './water.js';
 import { buildGreenery } from './greenery.js';
 import { Atmosphere } from './sky.js';
 import { CameraRig } from './cameraRig.js';
+import { buildCollisionIndex } from './collision.js';
+import { startBells } from './bells.js';
 
 const $ = (id) => document.getElementById(id);
 const setStatus = (msg) => ($('status').textContent = msg);
@@ -211,9 +213,11 @@ async function boot() {
 
   // ---------- camera rig ----------
   const rig = new CameraRig(camera, renderer.domElement, bounds);
+  rig.isBlocked = buildCollisionIndex(data.buildings);
   rig.onModeChange = (mode) => {
     $('help-orbit').classList.toggle('hidden', mode !== 'orbit');
     $('help-fly').classList.toggle('hidden', mode !== 'fly');
+    $('help-walk').classList.toggle('hidden', mode !== 'walk');
   };
   if (isMobile) {
     $('help-orbit').innerHTML =
@@ -227,6 +231,7 @@ async function boot() {
     return new THREE.Vector3(p.x, groundY(p.x, p.z) + lm.labelHeight, p.z);
   };
   const flyToLandmark = (lm) => {
+    openWiki(lm); // hoisted; defined in the UI section below
     const pos = landmarkPos(lm);
     const from = camera.position.clone().sub(pos);
     from.y = 0;
@@ -329,6 +334,90 @@ async function boot() {
     `${buildingCount.toLocaleString('de-DE')} Gebäude${lod2 ? ' (amtl. LoD2)' : ''} · ` +
     `${data.roads.length.toLocaleString('de-DE')} Wege · OpenStreetMap`;
 
+  // ---------- photo mode: render at 2x and download ----------
+  $('photo-btn').addEventListener('click', async () => {
+    const mult = 2;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    renderer.setSize(w * mult, h * mult, false);
+    composer.setSize(w * mult, h * mult);
+    grade.uniforms.uTexel.value.set(1 / (w * mult), 1 / (h * mult));
+    composer.render();
+    const blob = await new Promise((r) => renderer.domElement.toBlob(r, 'image/png'));
+    renderer.setSize(w, h);
+    composer.setSize(w, h);
+    grade.uniforms.uTexel.value.set(1 / w, 1 / h);
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `wuerzburg3d_${timeLabel.textContent.replace(':', '-')}.png`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // ---------- share link: camera + target + clock in the URL hash ----------
+  $('share-btn').addEventListener('click', async () => {
+    const c = camera.position;
+    const t = rig.orbit.target;
+    const f = (v) => Math.round(v * 10) / 10;
+    const hash = `#v=${f(c.x)},${f(c.y)},${f(c.z)}|${f(t.x)},${f(t.y)},${f(t.z)}|${slider.value}`;
+    history.replaceState(null, '', hash);
+    try {
+      await navigator.clipboard.writeText(location.href);
+      showHint('Link zu dieser Ansicht kopiert!');
+    } catch {
+      showHint(`Link: ${location.href}`);
+    }
+  });
+
+  // restore a shared view (skips the intro flight)
+  let restoredView = false;
+  const viewMatch = location.hash.match(/#v=([^|]+)\|([^|]+)\|(\d+)/);
+  if (viewMatch) {
+    const [cx, cy, cz] = viewMatch[1].split(',').map(Number);
+    const [tx, ty, tz] = viewMatch[2].split(',').map(Number);
+    if ([cx, cy, cz, tx, ty, tz].every(Number.isFinite)) {
+      camera.position.set(cx, cy, cz);
+      rig.orbit.target.set(tx, ty, tz);
+      camera.lookAt(rig.orbit.target);
+      slider.value = viewMatch[3];
+      applyClock(Number(viewMatch[3]));
+      restoredView = true;
+    }
+  }
+
+  // ---------- Wikipedia cards ----------
+  const wikiCard = $('wiki-card');
+  $('wiki-close').addEventListener('click', () => wikiCard.classList.add('hidden'));
+  async function openWiki(lm) {
+    if (!lm.wiki) return;
+    try {
+      const res = await fetch(
+        `https://de.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(lm.wiki)}`
+      );
+      if (!res.ok) return;
+      const info = await res.json();
+      $('wiki-title').textContent = info.title ?? lm.name;
+      $('wiki-text').textContent = info.extract ?? lm.desc;
+      $('wiki-link').href = info.content_urls?.desktop?.page ?? '#';
+      const img = $('wiki-img');
+      if (info.thumbnail?.source) {
+        img.src = info.thumbnail.source;
+        img.style.display = '';
+      } else {
+        img.style.display = 'none';
+      }
+      wikiCard.classList.remove('hidden');
+    } catch {
+      /* offline / blocked — silently skip */
+    }
+  }
+
+  // ---------- cathedral bells on the real full hour ----------
+  const domLm = LANDMARKS.find((l) => l.id === 'dom');
+  const dp = project(domLm.lon, domLm.lat);
+  const bells = startBells(camera, scene, new THREE.Vector3(dp.x, groundY(dp.x, dp.z) + 60, dp.z));
+
   window.addEventListener('resize', () => {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -350,11 +439,14 @@ async function boot() {
   setTimeout(() => $('loader').remove(), 1400);
 
   // intro flight: vista from the old town across the Main to the fortress
-  const festung = LANDMARKS[0];
-  const fp = project(festung.lon, festung.lat);
-  const lookAt = new THREE.Vector3(fp.x, groundY(fp.x, fp.z) + 40, fp.z);
-  rig.orbit.target.set(0, 0, 0);
-  rig.flyTo(new THREE.Vector3(fp.x + 780, lookAt.y + 210, fp.z + 120), lookAt, 4.5);
+  // (skipped when a shared view was restored from the URL)
+  if (!restoredView) {
+    const festung = LANDMARKS[0];
+    const fp = project(festung.lon, festung.lat);
+    const lookAt = new THREE.Vector3(fp.x, groundY(fp.x, fp.z) + 40, fp.z);
+    rig.orbit.target.set(0, 0, 0);
+    rig.flyTo(new THREE.Vector3(fp.x + 780, lookAt.y + 210, fp.z + 120), lookAt, 4.5);
+  }
 
   // hooks for automated visual tests
   window.__APP_READY = true;
@@ -391,6 +483,7 @@ async function boot() {
     atmosphere.updateEnvironment();
     traffic.update(dt);
     trams.update(dt);
+    bells.update();
     waterUniforms.u_time.value += dt;
 
     // distance-based label fading

@@ -24,34 +24,37 @@ export class CameraRig {
     this.orbit.maxPolarAngle = THREE.MathUtils.degToRad(88);
     this.orbit.screenSpacePanning = false;
 
-    // fly mode state
+    // first-person state (fly + walk)
     this.keys = new Set();
     this.yaw = 0;
     this.pitch = 0;
     this.flySpeed = 90;
     this.velocity = new THREE.Vector3();
+    this.eyeHeight = 1.7;
+    this.isBlocked = () => false; // building collision, injected by main
 
     this.onModeChange = () => {};
 
     domElement.addEventListener('click', () => {
-      if (this.mode === 'fly' && document.pointerLockElement !== domElement) {
+      if (this.isFirstPerson() && document.pointerLockElement !== domElement) {
         domElement.requestPointerLock();
       }
     });
     document.addEventListener('pointerlockchange', () => {
-      if (this.mode === 'fly' && document.pointerLockElement !== domElement) {
+      if (this.isFirstPerson() && document.pointerLockElement !== domElement) {
         this.setMode('orbit');
       }
     });
     document.addEventListener('mousemove', (e) => {
-      if (this.mode !== 'fly' || document.pointerLockElement !== this.dom) return;
+      if (!this.isFirstPerson() || document.pointerLockElement !== this.dom) return;
       this.yaw -= e.movementX * 0.0022;
       this.pitch -= e.movementY * 0.0022;
       this.pitch = THREE.MathUtils.clamp(this.pitch, -1.45, 1.45);
     });
     window.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.code === 'KeyF' && !e.repeat) this.toggleMode();
+      if (e.code === 'KeyF' && !e.repeat) this.setMode(this.mode === 'fly' ? 'orbit' : 'fly');
+      if (e.code === 'KeyG' && !e.repeat) this.setMode(this.mode === 'walk' ? 'orbit' : 'walk');
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -65,16 +68,21 @@ export class CameraRig {
     this.setMode(this.mode === 'orbit' ? 'fly' : 'orbit');
   }
 
+  isFirstPerson() {
+    return this.mode === 'fly' || this.mode === 'walk';
+  }
+
   setMode(mode) {
     if (mode === this.mode) return;
     this.mode = mode;
     this.flight = null;
-    if (mode === 'fly') {
+    if (mode === 'fly' || mode === 'walk') {
       this.orbit.enabled = false;
       const dir = new THREE.Vector3();
       this.camera.getWorldDirection(dir);
       this.yaw = Math.atan2(-dir.x, -dir.z);
-      this.pitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+      this.pitch = mode === 'walk' ? 0 : Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+      this.velocity.set(0, 0, 0);
       this.dom.requestPointerLock?.();
     } else {
       document.exitPointerLock?.();
@@ -111,6 +119,35 @@ export class CameraRig {
       if (f.t >= f.duration) this.flight = null;
     } else if (this.mode === 'orbit') {
       this.orbit.update();
+    } else if (this.mode === 'walk') {
+      // first-person walk: ground-locked, building collision, slide along walls
+      const speed = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 7 : 2.4;
+      const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+      const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+      const move = new THREE.Vector3();
+      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) move.add(forward);
+      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) move.sub(forward);
+      if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) move.add(right);
+      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) move.sub(right);
+      if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
+
+      this.velocity.lerp(move, 1 - Math.exp(-dt * 10));
+      const p = this.camera.position;
+      const nx = p.x + this.velocity.x * dt;
+      const nz = p.z + this.velocity.z * dt;
+      if (!this.isBlocked(nx, nz)) {
+        p.x = nx;
+        p.z = nz;
+      } else if (!this.isBlocked(nx, p.z)) {
+        p.x = nx; // slide along the wall
+      } else if (!this.isBlocked(p.x, nz)) {
+        p.z = nz;
+      }
+      // follow the terrain at eye height, smoothed against heightmap steps
+      const targetY = groundY(p.x, p.z) + this.eyeHeight;
+      p.y += (targetY - p.y) * (1 - Math.exp(-dt * 12));
+
+      this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
     } else {
       // fly mode
       const speed = this.flySpeed * (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 4 : 1);

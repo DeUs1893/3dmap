@@ -396,6 +396,82 @@ body {
   margin: 0 2px;
 }
 
+/* ---------- Wikipedia card ---------- */
+#wiki-card {
+  position: fixed;
+  z-index: 25;
+  left: 26px;
+  bottom: 64px;
+  width: min(340px, calc(100vw - 40px));
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+#wiki-card img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  display: block;
+}
+
+#wiki-card .wiki-body {
+  padding: 14px 18px 16px;
+}
+
+#wiki-card h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+#wiki-card p {
+  font-size: 12.5px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: #c6cddd;
+  max-height: 7.5em;
+  overflow: hidden;
+}
+
+#wiki-card a {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+#wiki-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(10, 14, 26, 0.55);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  #wiki-card {
+    left: 10px;
+    bottom: 170px;
+  }
+  #wiki-card img {
+    height: 100px;
+  }
+}
+
 /* ---------- Landmark labels (CSS2D) ---------- */
 .lm-label {
   pointer-events: auto;

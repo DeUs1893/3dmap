@@ -29,15 +29,15 @@ export const OVERPASS_ENDPOINTS = [
 
 // Notable places: camera targets, floodlighting and labels
 export const LANDMARKS = [
-  { id: 'festung', name: 'Festung Marienberg', lon: 9.9215, lat: 49.7903, labelHeight: 42, floodRadius: 150, viewDistance: 520, desc: 'Wahrzeichen über dem Main, ab 1201 erbaut' },
-  { id: 'residenz', name: 'Würzburger Residenz', lon: 9.9394, lat: 49.7926, labelHeight: 32, floodRadius: 110, viewDistance: 420, desc: 'UNESCO-Welterbe, Balthasar Neumann 1720–1744' },
-  { id: 'dom', name: 'Dom St. Kilian', lon: 9.9320, lat: 49.7928, labelHeight: 48, floodRadius: 60, viewDistance: 340, desc: 'Romanischer Dom, geweiht 1188' },
-  { id: 'bruecke', name: 'Alte Mainbrücke', lon: 9.9258, lat: 49.7933, labelHeight: 16, floodRadius: 45, viewDistance: 300, desc: 'Brückenheilige & Brückenschoppen seit 1543' },
-  { id: 'kaeppele', name: 'Käppele', lon: 9.9166, lat: 49.7858, labelHeight: 30, floodRadius: 55, viewDistance: 380, desc: 'Wallfahrtskirche von Balthasar Neumann' },
-  { id: 'marienkapelle', name: 'Marienkapelle', lon: 9.9286, lat: 49.7942, labelHeight: 42, floodRadius: 45, viewDistance: 280, desc: 'Gotische Kirche am Marktplatz' },
-  { id: 'rathaus', name: 'Rathaus · Grafeneckart', lon: 9.9292, lat: 49.7935, labelHeight: 30, floodRadius: 40, viewDistance: 260, desc: 'Ältester Teil um 1200' },
-  { id: 'neumuenster', name: 'Neumünster', lon: 9.9308, lat: 49.7930, labelHeight: 36, floodRadius: 40, viewDistance: 260, desc: 'Barockfassade über dem Kiliansgrab' },
-  { id: 'haug', name: 'Stift Haug', lon: 9.9353, lat: 49.7964, labelHeight: 40, floodRadius: 50, viewDistance: 300, desc: 'Erste Barockkirche Frankens' },
-  { id: 'kranen', name: 'Alter Kranen', lon: 9.9274, lat: 49.7968, labelHeight: 14, floodRadius: 30, viewDistance: 240, desc: 'Hafenkran von 1773 am Mainufer' },
-  { id: 'hbf', name: 'Hauptbahnhof', lon: 9.9358, lat: 49.8018, labelHeight: 18, floodRadius: 70, viewDistance: 360, desc: 'Tor zur Stadt seit 1854' },
+  { id: 'festung', wiki: 'Festung Marienberg', name: 'Festung Marienberg', lon: 9.9215, lat: 49.7903, labelHeight: 42, floodRadius: 150, viewDistance: 520, desc: 'Wahrzeichen über dem Main, ab 1201 erbaut' },
+  { id: 'residenz', wiki: 'Würzburger Residenz', name: 'Würzburger Residenz', lon: 9.9394, lat: 49.7926, labelHeight: 32, floodRadius: 110, viewDistance: 420, desc: 'UNESCO-Welterbe, Balthasar Neumann 1720–1744' },
+  { id: 'dom', wiki: 'Würzburger Dom', name: 'Dom St. Kilian', lon: 9.9320, lat: 49.7928, labelHeight: 48, floodRadius: 60, viewDistance: 340, desc: 'Romanischer Dom, geweiht 1188' },
+  { id: 'bruecke', wiki: 'Alte Mainbrücke', name: 'Alte Mainbrücke', lon: 9.9258, lat: 49.7933, labelHeight: 16, floodRadius: 45, viewDistance: 300, desc: 'Brückenheilige & Brückenschoppen seit 1543' },
+  { id: 'kaeppele', wiki: 'Käppele', name: 'Käppele', lon: 9.9166, lat: 49.7858, labelHeight: 30, floodRadius: 55, viewDistance: 380, desc: 'Wallfahrtskirche von Balthasar Neumann' },
+  { id: 'marienkapelle', wiki: 'Marienkapelle (Würzburg)', name: 'Marienkapelle', lon: 9.9286, lat: 49.7942, labelHeight: 42, floodRadius: 45, viewDistance: 280, desc: 'Gotische Kirche am Marktplatz' },
+  { id: 'rathaus', wiki: 'Grafeneckart', name: 'Rathaus · Grafeneckart', lon: 9.9292, lat: 49.7935, labelHeight: 30, floodRadius: 40, viewDistance: 260, desc: 'Ältester Teil um 1200' },
+  { id: 'neumuenster', wiki: 'Neumünster (Würzburg)', name: 'Neumünster', lon: 9.9308, lat: 49.7930, labelHeight: 36, floodRadius: 40, viewDistance: 260, desc: 'Barockfassade über dem Kiliansgrab' },
+  { id: 'haug', wiki: 'Stift Haug', name: 'Stift Haug', lon: 9.9353, lat: 49.7964, labelHeight: 40, floodRadius: 50, viewDistance: 300, desc: 'Erste Barockkirche Frankens' },
+  { id: 'kranen', wiki: 'Alter Kranen', name: 'Alter Kranen', lon: 9.9274, lat: 49.7968, labelHeight: 14, floodRadius: 30, viewDistance: 240, desc: 'Hafenkran von 1773 am Mainufer' },
+  { id: 'hbf', wiki: 'Würzburg Hauptbahnhof', name: 'Hauptbahnhof', lon: 9.9358, lat: 49.8018, labelHeight: 18, floodRadius: 70, viewDistance: 360, desc: 'Tor zur Stadt seit 1854' },
 ];

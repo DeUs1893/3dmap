@@ -52,6 +52,8 @@
         <span class="time-icon">🌙</span>
         <span id="time-label">20:00</span>
         <button id="refl-toggle" class="toggle on" title="Wasser-Spiegelungen an/aus">✨</button>
+        <button id="photo-btn" class="toggle on" title="Foto aufnehmen (hohe Auflösung)">📷</button>
+        <button id="share-btn" class="toggle on" title="Link zu dieser Ansicht kopieren">🔗</button>
       </div>
 
       <div class="hud-search">
@@ -78,13 +80,28 @@
       <footer class="hud-help">
         <div class="help-row" id="help-orbit">
           <kbd>🖱 Ziehen</kbd> Drehen · <kbd>Rechte Maus</kbd> Verschieben · <kbd>Scrollen</kbd> Zoom ·
-          <kbd>F</kbd> Flugmodus
+          <kbd>F</kbd> Flug · <kbd>G</kbd> Rundgang
         </div>
         <div class="help-row hidden" id="help-fly">
           <kbd>W A S D</kbd> Bewegen · <kbd>Q / E</kbd> Sinken / Steigen · <kbd>Shift</kbd> Boost ·
           <kbd>Scrollen</kbd> Tempo · <kbd>F</kbd> Orbit
         </div>
+        <div class="help-row hidden" id="help-walk">
+          <kbd>W A S D</kbd> Gehen · <kbd>Shift</kbd> Rennen · <kbd>Maus</kbd> Umsehen ·
+          <kbd>G</kbd> Orbit
+        </div>
       </footer>
+
+      <!-- Wikipedia card -->
+      <aside id="wiki-card" class="hidden">
+        <button id="wiki-close" aria-label="Schließen">×</button>
+        <img id="wiki-img" alt="" />
+        <div class="wiki-body">
+          <h2 id="wiki-title"></h2>
+          <p id="wiki-text"></p>
+          <a id="wiki-link" href="#" target="_blank" rel="noopener">Wikipedia →</a>
+        </div>
+      </aside>
     </div>
 
     <script type="module" src="./src/main.js"></script>

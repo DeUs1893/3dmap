@@ -281,6 +281,25 @@ console.log('ok clipping ring + path');
   console.log(`ok trees: ${greenery.trees.count} instances, merged geometry valid`);
 }
 
+// --- walk-mode collision: blocked inside footprints, free outside & in courtyards ---
+{
+  const { buildCollisionIndex } = await import('../src/collision.js');
+  const sq = (cx, cy, w) => [
+    [cx - w, cy - w], [cx + w, cy - w], [cx + w, cy + w], [cx - w, cy + w], [cx - w, cy - w],
+  ];
+  const blocked = buildCollisionIndex([
+    { outer: sq(9.93, 49.794, 0.0004), holes: [sq(9.93, 49.794, 0.0001)] },
+  ]);
+  const { project: prj } = await import('../src/geo.js');
+  const center = prj(9.93, 49.794);
+  const inWall = prj(9.93025, 49.794);
+  const outside = prj(9.932, 49.794);
+  assert(blocked(inWall.x, inWall.z), 'wall should block');
+  assert(!blocked(outside.x, outside.z), 'outside should be walkable');
+  assert(!blocked(center.x, center.z), 'courtyard should be walkable');
+  console.log('ok walk collision: wall blocks, courtyard & street free');
+}
+
 // --- LoD2 pipeline end-to-end (synthetic CityGML → bake → loader) ---
 {
   const { execSync } = await import('node:child_process');
