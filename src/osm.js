@@ -25,6 +25,11 @@ export function buildQuery() {
   way["leisure"~"^(park|garden|pitch|playground)$"](${b});
   way["landuse"~"^(forest|grass|meadow|vineyard|cemetery|orchard|recreation_ground|village_green)$"](${b});
   way["natural"~"^(wood|scrub)$"](${b});
+  way["place"="square"](${b});
+  way["highway"~"^(pedestrian|footway)$"]["area"="yes"](${b});
+  way["amenity"="parking"](${b});
+  way["landuse"~"^(residential|commercial|retail|industrial|garages)$"](${b});
+  relation["landuse"~"^(residential|commercial|retail|industrial|garages)$"](${b});
 );
 out geom;`;
 }
@@ -310,15 +315,24 @@ export function parseOSM(json) {
       continue;
     }
 
+    const URBAN_LANDUSE = ['residential', 'commercial', 'retail', 'industrial', 'garages'];
     const greenKind =
-      tags.landuse === 'vineyard' ? 'vineyard'
+      tags.place === 'square' || ((tags.highway === 'pedestrian' || tags.highway === 'footway') && tags.area === 'yes') ? 'plaza'
+      : tags.amenity === 'parking' ? 'parking'
+      : tags.landuse === 'vineyard' ? 'vineyard'
       : tags.landuse === 'forest' || tags.natural === 'wood' ? 'forest'
       : tags.landuse === 'cemetery' ? 'cemetery'
+      : URBAN_LANDUSE.includes(tags.landuse) ? 'urban'
       : tags.leisure || tags.landuse || tags.natural ? 'green'
       : null;
-    if (greenKind && el.type === 'way') {
-      const ring = wayRing(el);
-      if (ring.length >= 4) greens.push({ outer: ring, kind: greenKind, id: el.id });
+    if (greenKind) {
+      if (el.type === 'way') {
+        const ring = wayRing(el);
+        if (ring.length >= 4) greens.push({ outer: ring, kind: greenKind, id: el.id });
+      } else if (el.type === 'relation') {
+        const { outers } = relationPolygons(el);
+        for (const outer of outers) greens.push({ outer, kind: greenKind, id: el.id });
+      }
     }
   }
 

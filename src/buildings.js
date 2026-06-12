@@ -30,7 +30,7 @@ export function isStone(type) {
 // Structures that must not get the residential window grid: sacral/fortified
 // buildings, plus anything that isn't a habitable floor (walls, sheds …).
 const NO_WINDOW_TYPES = new Set([
-  'church', 'cathedral', 'chapel', 'tower', 'castle',
+  'church', 'cathedral', 'chapel', 'tower',
   'wall', 'retaining_wall', 'city_wall', 'garage', 'garages', 'shed', 'hut',
   'roof', 'carport', 'gate', 'bridge', 'greenhouse', 'ruins',
 ]);

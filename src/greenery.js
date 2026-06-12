@@ -16,6 +16,9 @@ const KIND_COLORS = {
   forest: new THREE.Color(0x27351f),
   vineyard: new THREE.Color(0x3d4a2a),
   cemetery: new THREE.Color(0x2e3a2c),
+  plaza: new THREE.Color(0x5e574a), // paved squares & pedestrian areas
+  parking: new THREE.Color(0x46484c),
+  urban: new THREE.Color(0x4f4a3f), // residential/commercial block ground
 };
 const KIND_TREE_DENSITY = {
   // trees per square meter
@@ -23,7 +26,11 @@ const KIND_TREE_DENSITY = {
   green: 1 / 900,
   cemetery: 1 / 700,
   vineyard: 1 / 2400,
+  plaza: 1 / 4500,
+  urban: 1 / 2800, // scattered courtyard trees
 };
+// drape height: urban base sits below greens/plazas so parks stay visible
+const KIND_OFFSET = { urban: 0.15, plaza: 0.45, parking: 0.42 };
 
 export function buildGreenery(greens) {
   const pos = [];
@@ -43,9 +50,10 @@ export function buildGreenery(greens) {
     if (!tri) continue;
     const { verts, tris } = subdivideTriangles(tri.points, tri.triangles, 30);
     const color = KIND_COLORS[g.kind] ?? KIND_COLORS.green;
+    const yOff = KIND_OFFSET[g.kind] ?? 0.4;
     const offset = pos.length / 3;
     for (const v of verts) {
-      pos.push(v.x, groundY(v.x, v.y) + 0.4, v.y);
+      pos.push(v.x, groundY(v.x, v.y) + yOff, v.y);
       const shade = 0.9 + hash01(Math.round(v.x * 13 + v.y * 7)) * 0.2;
       col.push(color.r * shade, color.g * shade, color.b * shade);
     }

@@ -113,6 +113,10 @@ export async function loadLOD2(baseUrl = '', osmBuildings = [], waterMask = null
       bridgeSkips++;
       continue; // vertices stay zeroed → zero-area triangles, invisible
     }
+    // deterministic ±3 cm jitter separates coplanar party walls of adjacent
+    // row houses — otherwise their differing window patterns z-fight as dither
+    const jx = (hash01(Math.round(b.cx * 17 + b.cz * 5)) - 0.5) * 0.06;
+    const jz = (hash01(Math.round(b.cx * 3 + b.cz * 29)) - 0.5) * 0.06;
     const yShift = minGround - b.minH - 0.4;
     let flood = 0;
     for (const lm of landmarkPts) {
@@ -137,9 +141,9 @@ export async function loadLOD2(baseUrl = '', osmBuildings = [], waterMask = null
     const eaveForWindows = windowsAllowed(osmType, b.eave) ? b.eave : 0;
 
     for (let i = b.s; i < b.s + b.n; i++) {
-      pos[i * 3] = qPos[i * 3] / 10;
+      pos[i * 3] = qPos[i * 3] / 10 + jx;
       pos[i * 3 + 1] = qPos[i * 3 + 1] / 10 + yShift;
-      pos[i * 3 + 2] = qPos[i * 3 + 2] / 10;
+      pos[i * 3 + 2] = qPos[i * 3 + 2] / 10 + jz;
       const isWall = qFlag[i];
       const c = isWall ? wallC : roofC;
       col[i * 3] = c.r;
