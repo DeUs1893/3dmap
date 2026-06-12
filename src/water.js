@@ -52,20 +52,38 @@ export function prepareWater(waterPolys, riverLines = []) {
     return { level: 0, mask: () => null, build: () => new THREE.Group() };
   }
 
-  // Water level: low percentile of terrain height along banks / centerlines
-  const samples = [];
+  // Per-polygon water level: a pond in a hillside park sits many meters above
+  // the Main — one global level would carve craters (or drown the park).
+  const levelOf = (ring) => {
+    const samples = [];
+    for (let i = 0; i < ring.length; i += 2) samples.push(groundY(ring[i].x, ring[i].y));
+    samples.sort((a, b) => a - b);
+    return samples[Math.floor(samples.length * 0.12)] - 0.3;
+  };
+  const levels = [];
+  for (const p of polys) p.level = levels[levels.push(levelOf(p.outer)) - 1];
+  // the river fallback strokes share one level sampled along the centerlines
+  let strokeLevel = null;
+  if (strokes.length) {
+    const samples = [];
+    for (const st of strokes) for (const v of st.pts) samples.push(groundY(v.x, v.y));
+    samples.sort((a, b) => a - b);
+    strokeLevel = samples[Math.floor(samples.length * 0.12)] - 0.3;
+    levels.push(strokeLevel);
+  }
+  // dominant surface (the Main) anchors the planar reflection
+  let level = strokeLevel ?? -0.5;
+  let bestArea = 0;
   for (const p of polys) {
-    for (let i = 0; i < p.outer.length; i += 2) {
-      samples.push(groundY(p.outer[i].x, p.outer[i].y));
+    const a = Math.abs(ringArea(p.outer));
+    if (a > bestArea) {
+      bestArea = a;
+      level = p.level;
     }
   }
-  for (const s of strokes) {
-    for (const v of s.pts) samples.push(groundY(v.x, v.y));
-  }
-  samples.sort((a, b) => a - b);
-  const level = samples[Math.floor(samples.length * 0.12)] - 0.3;
 
-  // Rasterized mask over the bounding box of all water shapes for O(1) lookups
+  // Rasterized index mask: each polygon is drawn with its level index so the
+  // lookup returns the LOCAL water level.
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of polys) {
     for (const v of p.outer) {
@@ -73,10 +91,10 @@ export function prepareWater(waterPolys, riverLines = []) {
       minZ = Math.min(minZ, v.y); maxZ = Math.max(maxZ, v.y);
     }
   }
-  for (const s of strokes) {
-    for (const v of s.pts) {
-      minX = Math.min(minX, v.x - s.width); maxX = Math.max(maxX, v.x + s.width);
-      minZ = Math.min(minZ, v.y - s.width); maxZ = Math.max(maxZ, v.y + s.width);
+  for (const st of strokes) {
+    for (const v of st.pts) {
+      minX = Math.min(minX, v.x - st.width); maxX = Math.max(maxX, v.x + st.width);
+      minZ = Math.min(minZ, v.y - st.width); maxZ = Math.max(maxZ, v.y + st.width);
     }
   }
   const res = 2; // meters per cell
@@ -88,8 +106,9 @@ export function prepareWater(waterPolys, riverLines = []) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, gw, gh);
-  ctx.fillStyle = '#fff';
-  for (const p of polys) {
+  polys.forEach((p, pi) => {
+    const idx = Math.min(254, pi) + 1;
+    ctx.fillStyle = `rgb(${idx},${idx},${idx})`;
     ctx.beginPath();
     p.outer.forEach((v, i) => {
       const cx = (v.x - minX) / res;
@@ -106,27 +125,34 @@ export function prepareWater(waterPolys, riverLines = []) {
       ctx.closePath();
     }
     ctx.fill('evenodd');
-  }
-  ctx.strokeStyle = '#fff';
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  for (const s of strokes) {
-    ctx.lineWidth = Math.max(2, s.width / res);
-    ctx.beginPath();
-    s.pts.forEach((v, i) => {
-      const cx = (v.x - minX) / res;
-      const cy = (v.y - minZ) / res;
-      i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
-    });
-    ctx.stroke();
+  });
+  if (strokes.length) {
+    const idx = Math.min(254, levels.length - 1) + 1;
+    ctx.strokeStyle = `rgb(${idx},${idx},${idx})`;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of strokes) {
+      ctx.lineWidth = Math.max(2, st.width / res);
+      ctx.beginPath();
+      st.pts.forEach((v, i) => {
+        const cx = (v.x - minX) / res;
+        const cy = (v.y - minZ) / res;
+        i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+      });
+      ctx.stroke();
+    }
   }
   const maskData = ctx.getImageData(0, 0, gw, gh).data;
+  const levelAtCell = (cx, cy) => {
+    const v = maskData[(cy * gw + cx) * 4];
+    return v > 0 ? levels[Math.min(v - 1, levels.length - 1)] : null;
+  };
 
   const mask = (x, z) => {
     if (x < minX || x > maxX || z < minZ || z > maxZ) return null;
     const cx = Math.min(gw - 1, Math.floor((x - minX) / res));
     const cy = Math.min(gh - 1, Math.floor((z - minZ) / res));
-    return maskData[(cy * gw + cx) * 4] > 127 ? level : null;
+    return levelAtCell(cx, cy);
   };
 
   // The surface mesh is generated from the raster mask instead of triangulating
@@ -135,28 +161,35 @@ export function prepareWater(waterPolys, riverLines = []) {
     const pos = [];
     const idx = [];
     const cornerIndex = new Map();
-    const corner = (cx, cy) => {
+    // corners take the local water level of the cell that first references them
+    const corner = (cx, cy, lvl) => {
       const key = cy * (gw + 1) + cx;
       let i = cornerIndex.get(key);
       if (i === undefined) {
         i = pos.length / 3;
-        pos.push(minX + cx * res, level, minZ + cy * res);
+        pos.push(minX + cx * res, lvl, minZ + cy * res);
         cornerIndex.set(key, i);
       }
       return i;
     };
     // one cell dilation tucks the stair-stepped edge under the rising bank
-    const wet = (cx, cy) =>
-      cx >= 0 && cy >= 0 && cx < gw && cy < gh && maskData[(cy * gw + cx) * 4] > 127;
+    const wetLevel = (cx, cy) => {
+      if (cx < 0 || cy < 0 || cx >= gw || cy >= gh) return null;
+      return levelAtCell(cx, cy);
+    };
     for (let cy = 0; cy < gh; cy++) {
       for (let cx = 0; cx < gw; cx++) {
-        if (!wet(cx, cy) && !wet(cx - 1, cy) && !wet(cx + 1, cy) && !wet(cx, cy - 1) && !wet(cx, cy + 1)) {
-          continue;
-        }
-        const a = corner(cx, cy);
-        const b = corner(cx + 1, cy);
-        const c = corner(cx + 1, cy + 1);
-        const d = corner(cx, cy + 1);
+        const lvl =
+          wetLevel(cx, cy) ??
+          wetLevel(cx - 1, cy) ??
+          wetLevel(cx + 1, cy) ??
+          wetLevel(cx, cy - 1) ??
+          wetLevel(cx, cy + 1);
+        if (lvl === null || lvl === undefined) continue;
+        const a = corner(cx, cy, lvl);
+        const b = corner(cx + 1, cy, lvl);
+        const c = corner(cx + 1, cy + 1, lvl);
+        const d = corner(cx, cy + 1, lvl);
         idx.push(a, c, b, a, d, c); // upward-facing in (x, z)
       }
     }

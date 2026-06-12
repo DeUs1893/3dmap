@@ -516,7 +516,9 @@ async function boot() {
     // distance-based label fading
     for (const { obj, el } of labelObjects) {
       const d = tmpV.copy(obj.position).distanceTo(camera.position);
-      const o = THREE.MathUtils.clamp(1.6 - d / 2200, 0, 1);
+      // on foot, distant labels would stack mid-screen — fade them early
+      const range = rig.mode === 'walk' ? 420 : 2200;
+      const o = THREE.MathUtils.clamp(1.6 - d / range, 0, 1);
       el.style.opacity = o.toFixed(2);
       el.style.pointerEvents = o > 0.08 ? 'auto' : 'none';
     }

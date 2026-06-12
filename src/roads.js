@@ -109,7 +109,7 @@ function pathHeights(pts, road) {
       ys[i] = y0 + (y1 - y0) * t + Math.sin(t * Math.PI) * 1.6;
     }
   } else {
-    for (let i = 0; i < pts.length; i++) ys[i] = groundY(pts[i].x, pts[i].y) + 0.55;
+    for (let i = 0; i < pts.length; i++) ys[i] = groundY(pts[i].x, pts[i].y) + 0.4;
   }
   return ys;
 }
@@ -142,6 +142,30 @@ function appendRibbon(arrays, pts, ys, width, color, withSkirts, rank = 7) {
   for (let i = 0; i < n - 1; i++) {
     const a = start + i * 2;
     idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+
+  if (!withSkirts) {
+    // curb skirts down into the terrain so the draped deck never floats
+    // visibly at eye level
+    for (const side of [0, 1]) {
+      const s0 = pos.length / 3;
+      for (let i = 0; i < n; i++) {
+        const topIdx = (start + i * 2 + side) * 3;
+        const x = pos[topIdx];
+        const y = pos[topIdx + 1];
+        const z = pos[topIdx + 2];
+        pos.push(x, y, z, x, y - 1.4, z);
+        col.push(
+          color.r * 1.25 + 0.02, color.g * 1.25 + 0.02, color.b * 1.25 + 0.02,
+          color.r * 0.55, color.g * 0.55, color.b * 0.55
+        );
+        road.push(0, 0, 7, 0, 0, 7);
+      }
+      for (let i = 0; i < n - 1; i++) {
+        const a = s0 + i * 2;
+        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
   }
 
   if (withSkirts) {

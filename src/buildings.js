@@ -118,7 +118,7 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         float windowMask(vec2 win, float eaveH, float seed) {
           vec2 cell = floor((win - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
           vec2 cuv = fract((win - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
-          float inWin = step(0.24, cuv.x) * step(cuv.x, 0.76) * step(0.28, cuv.y) * step(cuv.y, 0.78);
+          float inWin = step(0.26, cuv.x) * step(cuv.x, 0.74) * step(0.3, cuv.y) * step(cuv.y, 0.78);
           float validRow = step(0.9, win.y) * step(win.y, eaveH - 0.8);
           float exists = step(0.1, winHash(cell + 23.0, seed));
           return inWin * validRow * exists;
@@ -127,23 +127,42 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        // shared per-fragment facade frame: face normal + world-space wall uv
+        // (baked u stretches on side walls; the world tangent never does)
+        vec3 wbFaceN = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
+        vec2 wbWinUv = vec2(
+          dot(vWPos.xz, normalize(vec2(-wbFaceN.z, wbFaceN.x) + vec2(1e-5, 0.0))),
+          vWin.y
+        );
         {
           float wall = vExtra.y;
           // grounded base, storey ledges and plaster grain keep facades from looking sterile
           float baseShade = 0.74 + 0.26 * smoothstep(0.0, 5.5, vWin.y);
           float fy = fract((vWin.y - 0.9) / 3.1);
           float ledge = 1.0 - 0.08 * smoothstep(0.08, 0.0, min(fy, 1.0 - fy));
-          float grain = 0.95 + 0.10 * winHash(floor(vWin * vec2(0.9, 1.6)), vExtra.x + 5.0);
+          float grain = 0.95 + 0.10 * winHash(floor(wbWinUv * vec2(0.9, 1.6)), vExtra.x + 5.0);
           diffuseColor.rgb *= mix(1.0, baseShade * ledge * grain, wall);
 
-          // daylight windows: darker glass panes set into the facade
-          float win = windowMask(vWin, vExtra.w, vExtra.x) * wall;
-          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.32, 0.36, 0.42) + vec3(0.03, 0.04, 0.06), win * 0.78);
+          // daylight windows: recessed glass with frame and sill
+          if (wall > 0.5) {
+            vec2 g = (wbWinUv - vec2(0.0, 0.9)) / vec2(2.7, 3.1);
+            vec2 cell = floor(g);
+            vec2 f = fract(g);
+            float validRow = step(0.9, vWin.y) * step(vWin.y, vExtra.w - 0.8);
+            float exists = step(0.1, winHash(cell + 23.0, vExtra.x)) * validRow;
+            float pane = step(0.26, f.x) * step(f.x, 0.74) * step(0.3, f.y) * step(f.y, 0.78) * exists;
+            float frame = step(0.22, f.x) * step(f.x, 0.78) * step(0.26, f.y) * step(f.y, 0.82) * exists - pane;
+            float sill = step(0.2, f.x) * step(f.x, 0.8) * step(0.21, f.y) * step(f.y, 0.255) * exists;
+            diffuseColor.rgb *= 1.0 - frame * 0.32;
+            vec3 glass = diffuseColor.rgb * vec3(0.3, 0.34, 0.4) + vec3(0.02, 0.03, 0.05);
+            glass *= 0.8 + 0.5 * smoothstep(0.3, 0.78, f.y); // sky catch toward the top
+            diffuseColor.rgb = mix(diffuseColor.rgb, glass, pane * 0.88);
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + vec3(0.035), sill * 0.8);
+          }
 
           // roof tiles: rows running along the eaves (perpendicular to the slope)
-          vec3 faceN = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
-          if (wall < 0.5 && abs(faceN.y) < 0.93 && abs(faceN.y) > 0.2) {
-            vec2 dir2 = normalize(faceN.xz + vec2(1e-5, 0.0));
+          if (wall < 0.5 && abs(wbFaceN.y) < 0.93 && abs(wbFaceN.y) > 0.2) {
+            vec2 dir2 = normalize(wbFaceN.xz + vec2(1e-5, 0.0));
             float row = fract(dot(vWPos.xz, dir2) / 0.42);
             float tile = 0.93 + 0.07 * smoothstep(0.1, 0.45, abs(row - 0.5) * 2.0);
             float col = 0.97 + 0.05 * winHash(floor(vec2(dot(vWPos.xz, vec2(-dir2.y, dir2.x)) / 0.55, dot(vWPos.xz, dir2) / 0.42)), vExtra.x);
@@ -157,8 +176,8 @@ export function createBuildingMaterial(side = THREE.FrontSide) {
         {
           float isWall = vExtra.y;
           float eaveH = vExtra.w;
-          vec2 cell = floor((vWin - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
-          float pane = windowMask(vWin, eaveH, vExtra.x);
+          vec2 cell = floor((wbWinUv - vec2(0.0, 0.9)) / vec2(2.7, 3.1));
+          float pane = windowMask(wbWinUv, eaveH, vExtra.x);
           float h = winHash(cell, vExtra.x);
           float lit = step(1.0 - u_litRatio, h);
           float coolMix = step(0.92, fract(h * 13.0));
