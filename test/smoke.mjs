@@ -300,6 +300,31 @@ console.log('ok clipping ring + path');
   console.log('ok walk collision: wall blocks, courtyard & street free');
 }
 
+// --- travel graph: crossing ways split at the shared junction ---
+{
+  const { buildTravelGraph, AgentSystem, buildCarMesh } = await import('../src/agents.js');
+  const roads = [
+    {
+      rank: 1, tunnel: false, bridge: false,
+      path: [[9.925, 49.794], [9.93, 49.794], [9.935, 49.794]],
+    },
+    {
+      rank: 1, tunnel: false, bridge: false,
+      path: [[9.93, 49.791], [9.93, 49.794], [9.93, 49.797]],
+    },
+  ];
+  const graph = buildTravelGraph(roads, () => true);
+  assert.equal(graph.edges.length, 4, `expected 4 edges after junction split, got ${graph.edges.length}`);
+  const degrees = [...graph.nodes.values()].map((n) => n.edges.length).sort((a, b) => b - a);
+  assert.equal(degrees[0], 4, 'junction node should connect 4 edges');
+  const cars = new AgentSystem(graph, buildCarMesh(10), { count: 10, speedMin: 8, speedMax: 10 });
+  for (let i = 0; i < 600; i++) cars.update(0.1, i * 0.1); // a minute of driving
+  for (const a of cars.agents) {
+    assert(Number.isFinite(a.s) && a.s >= 0 && a.s <= a.edge.len + 0.01, 'agent left its edge');
+  }
+  console.log('ok travel graph: 4 edges, junction degree 4, agents stable after 60 s');
+}
+
 // --- LoD2 pipeline end-to-end (synthetic CityGML → bake → loader) ---
 {
   const { execSync } = await import('node:child_process');

@@ -16,6 +16,7 @@ import { buildBuildings } from './buildings.js';
 import { loadLOD2 } from './lod2.js';
 import { buildRoads } from './roads.js';
 import { makeGlowTexture, buildLamps, TrafficSystem } from './lights.js';
+import { buildTravelGraph, AgentSystem, CarLights, buildCarMesh, buildPersonMesh } from './agents.js';
 import { prepareWater, waterUniforms } from './water.js';
 import { buildGreenery } from './greenery.js';
 import { Atmosphere } from './sky.js';
@@ -186,8 +187,31 @@ async function boot() {
   const glowTex = makeGlowTexture();
   const lamps = buildLamps(data.roads, glowTex);
   scene.add(lamps);
-  const traffic = new TrafficSystem(trafficPaths, glowTex);
-  scene.add(traffic.points);
+  // living city: cars and pedestrians traveling a real street graph
+  setStatus('Belebe die Stadt …');
+  const carGraph = buildTravelGraph(data.roads, (r) => r <= 3, 7);
+  const pedGraph = buildTravelGraph(data.roads, (r) => r >= 3 && r <= 6, 5);
+  const carCount = isMobile ? 70 : 220;
+  const pedCount = isMobile ? 110 : 380;
+  const cars = new AgentSystem(carGraph, buildCarMesh(carCount), {
+    count: carCount,
+    speedMin: 6,
+    speedMax: 11,
+    spawnWeight: (e) => (e.rank <= 1 ? 2.5 : 1),
+  });
+  scene.add(cars.mesh);
+  const people = new AgentSystem(pedGraph, buildPersonMesh(pedCount), {
+    count: pedCount,
+    speedMin: 0.9,
+    speedMax: 1.7,
+    pauseChance: 0.02,
+    pauseMax: 18,
+    bob: 0.04,
+    spawnWeight: (e) => (e.rank === 4 ? 6 : e.rank === 6 ? 2 : 1),
+  });
+  scene.add(people.mesh);
+  const carLights = new CarLights(cars, glowTex);
+  scene.add(carLights.points);
   const trams = new TrafficSystem(tramPaths, glowTex, {
     metersPerVehicle: 600,
     maxCount: 24,
@@ -208,7 +232,7 @@ async function boot() {
     waterUniforms.u_reflStrength.value = 0; // planar reflection pass off by default
   }
   atmosphere.registerLampMaterial(lamps.material, 0.9);
-  atmosphere.registerLampMaterial(traffic.points.material, 1);
+  atmosphere.registerLampMaterial(carLights.points.material, 1);
   atmosphere.registerLampMaterial(trams.points.material, 1);
 
   // ---------- camera rig ----------
@@ -481,7 +505,9 @@ async function boot() {
     rig.update(dt);
     atmosphere.track(rig.orbit.target);
     atmosphere.updateEnvironment();
-    traffic.update(dt);
+    cars.update(dt, clock.elapsedTime);
+    people.update(dt, clock.elapsedTime);
+    carLights.update();
     trams.update(dt);
     bells.update();
     waterUniforms.u_time.value += dt;
